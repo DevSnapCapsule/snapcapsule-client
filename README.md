@@ -1,0 +1,1 @@
+# snapcapsule-frontend
