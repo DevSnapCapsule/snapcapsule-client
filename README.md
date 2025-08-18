@@ -1,1 +1,1 @@
-# snapcapsule-frontend
+# SnapCapsule : AI Powered Photo App
