@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="21754" systemVersion="22E261" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithCloudKit="YES" userDefinedModelVersionIdentifier="">
+    <entity name="ImageEntity" representedClassName="ImageEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="latitude" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="longitude" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="searchableText" optional="YES" attributeType="String"/>
+        <attribute name="timestamp" optional="NO" attributeType="Date" usesScalarValueType="NO" defaultDateTimeInterval="0"/>
+        <relationship name="colors" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="ColorEntity" inverseName="image" inverseEntity="ColorEntity"/>
+        <relationship name="faces" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="FaceEntity" inverseName="image" inverseEntity="FaceEntity"/>
+        <relationship name="labels" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="LabelEntity" inverseName="image" inverseEntity="LabelEntity"/>
+        <relationship name="objects" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="ObjectEntity" inverseName="image" inverseEntity="ObjectEntity"/>
+        <relationship name="scenes" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="SceneEntity" inverseName="image" inverseEntity="SceneEntity"/>
+    </entity>
+    <entity name="ColorEntity" representedClassName="ColorEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="name" optional="NO" attributeType="String" defaultValueString=""/>
+        <relationship name="image" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ImageEntity" inverseName="colors" inverseEntity="ImageEntity"/>
+    </entity>
+    <entity name="FaceEntity" representedClassName="FaceEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="faceType" optional="NO" attributeType="String" defaultValueString=""/>
+        <relationship name="image" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ImageEntity" inverseName="faces" inverseEntity="ImageEntity"/>
+    </entity>
+    <entity name="LabelEntity" representedClassName="LabelEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="name" optional="NO" attributeType="String" defaultValueString=""/>
+        <relationship name="image" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ImageEntity" inverseName="labels" inverseEntity="ImageEntity"/>
+    </entity>
+    <entity name="ObjectEntity" representedClassName="ObjectEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="name" optional="NO" attributeType="String" defaultValueString=""/>
+        <relationship name="image" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ImageEntity" inverseName="objects" inverseEntity="ImageEntity"/>
+    </entity>
+    <entity name="SceneEntity" representedClassName="SceneEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="name" optional="NO" attributeType="String" defaultValueString=""/>
+        <relationship name="image" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ImageEntity" inverseName="scenes" inverseEntity="ImageEntity"/>
+    </entity>
+</model> 
