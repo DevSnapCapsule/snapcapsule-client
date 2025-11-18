@@ -18,6 +18,17 @@ struct ContentView: View {
     var body: some View {
         NavigationView {
             ZStack {
+                // Liquid glass background gradient
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color(red: 0.95, green: 0.97, blue: 1.0),
+                        Color(red: 0.98, green: 0.99, blue: 1.0)
+                    ]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+                
                 VStack(spacing: 0) {
                     // Content area
                     ZStack {
@@ -27,8 +38,6 @@ struct ContentView: View {
                             VStack(spacing: 0) {
                                 SearchBar(text: $searchText, onSearch: performSearch)
                                     .padding()
-                                    .background(Color(.systemBackground))
-                                    .shadow(color: Color.black.opacity(0.1), radius: 2, y: 2)
                                 
                                 ScrollView {
                                     if searchResults.isEmpty {
@@ -54,9 +63,8 @@ struct ContentView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     
-                    // Footer Menu
+                    // Footer Menu with liquid glass
                     VStack(spacing: 0) {
-                        Divider()
                         HStack(spacing: 0) {
                             FooterMenuItem(icon: "camera.fill", title: "Snap Lens", isSelected: selectedTab == 0) {
                                 isShowingCamera = true
@@ -74,21 +82,49 @@ struct ContentView: View {
                                 selectedTab = 3
                             }
                         }
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 8)
                         .background(
-                            LinearGradient(
-                                gradient: Gradient(colors: [
-                                    Color.black.opacity(0.8),
-                                    Color.black.opacity(0.9)
-                                ]),
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
+                            ZStack {
+                                // Glass morphism effect
+                                RoundedRectangle(cornerRadius: 0)
+                                    .fill(.ultraThinMaterial)
+                                
+                                // Subtle gradient overlay
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color.white.opacity(0.3),
+                                        Color.white.opacity(0.1)
+                                    ]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            }
+                        )
+                        .overlay(
+                            // Top border with glass effect
+                            VStack {
+                                Rectangle()
+                                    .fill(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [
+                                                Color.white.opacity(0.6),
+                                                Color.white.opacity(0.1)
+                                            ]),
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                                    .frame(height: 1)
+                                    .blur(radius: 0.5)
+                                Spacer()
+                            }
                         )
                     }
                 }
             }
             .navigationBarTitle(navigationTitle, displayMode: .inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         }
         .fullScreenCover(isPresented: $isShowingCamera) {
             CameraView()
@@ -113,20 +149,66 @@ struct ContentView: View {
 struct SearchBar: View {
     @Binding var text: String
     let onSearch: () -> Void
+    @FocusState private var isFocused: Bool
     
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
+                .font(.system(size: 18))
+            
             TextField("AI Search..", text: $text)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .focused($isFocused)
                 .autocapitalization(.none)
                 .onSubmit(onSearch)
             
-            Button(action: onSearch) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.blue)
-                    .padding(.horizontal, 8)
+            if !text.isEmpty {
+                Button(action: {
+                    text = ""
+                    isFocused = false
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 18))
+                }
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.ultraThinMaterial)
+                
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color.white.opacity(isFocused ? 0.4 : 0.2),
+                                Color.white.opacity(isFocused ? 0.3 : 0.1)
+                            ]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.white.opacity(0.6),
+                            Color.white.opacity(0.2)
+                        ]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: isFocused ? 1.5 : 1
+                )
+        )
+        .shadow(color: Color.black.opacity(0.05), radius: isFocused ? 12 : 8, y: isFocused ? 6 : 4)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isFocused)
     }
 }
 
@@ -134,25 +216,64 @@ struct SearchResultsList: View {
     let results: [ImageSearchResult]
     
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: 12) {
+        LazyVStack(alignment: .leading, spacing: 16) {
             ForEach(results, id: \.imageId) { result in
-                VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text(result.matchedText)
                         .font(.headline)
+                        .fontWeight(.semibold)
                     Text(result.timestamp, style: .date)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                     if let address = getAddressFromLocation(result.location) {
-                        Text(address)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        HStack(spacing: 4) {
+                            Image(systemName: "location.fill")
+                                .font(.caption2)
+                            Text(address)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(.thinMaterial)
+                        
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color.white.opacity(0.3),
+                                        Color.white.opacity(0.1)
+                                    ]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    }
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    Color.white.opacity(0.5),
+                                    Color.white.opacity(0.2)
+                                ]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(color: Color.black.opacity(0.08), radius: 10, y: 4)
                 .padding(.horizontal)
-                Divider()
             }
         }
-        .padding(.top)
+        .padding(.vertical)
     }
     
     private func getAddressFromLocation(_ location: CLLocation) -> String? {
@@ -164,204 +285,209 @@ struct SearchResultsList: View {
 
 struct EmptyStateView: View {
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 64))
-                .foregroundColor(.gray)
-            Text("No Photos Yet")
-                .font(.title2)
-            Text("Take some photos to get started!")
-                .foregroundColor(.secondary)
+        VStack(spacing: 24) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color.blue.opacity(0.1),
+                                Color.purple.opacity(0.1)
+                            ]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 120, height: 120)
+                    .blur(radius: 20)
+                
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: 64))
+                    .foregroundStyle(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.blue, .purple]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            
+            VStack(spacing: 8) {
+                Text("No Photos Yet")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Text("Take some photos to get started!")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
         }
+        .padding(40)
     }
 }
 
 struct CapsuleRepositoryView: View {
-    @State private var searchText = ""
     @State private var images: [ImageItem] = []
-    @State private var filteredImages: [ImageItem] = []
-    @State private var isSearching = false
-    @State private var selectedSearchFilter: SearchFilter = .all
-    @State private var showingSearchSuggestions = false
-    @State private var searchSuggestions: [String] = []
+    @State private var indexedImages: [ImageItem] = []
     @State private var isLoading = true
-    
-    // Custom colors
-    private let backgroundColor = Color(red: 0.95, green: 0.95, blue: 0.97)
-    private let cardBackground = Color(red: 1, green: 1, blue: 1).opacity(0.8)
-    
-    // Sample search suggestions based on categories
-    private let searchCategories: [SearchCategory] = [
-        SearchCategory(icon: "mappin.circle.fill", name: "Locations", examples: ["Beach", "Mountains", "City"]),
-        SearchCategory(icon: "car.fill", name: "Objects", examples: ["Car", "Bus", "Statue"]),
-        SearchCategory(icon: "tag.fill", name: "Brands", examples: ["Nike", "Puma", "Adidas"]),
-        SearchCategory(icon: "face.smiling.fill", name: "People", examples: ["Smiling", "Group", "Portrait"]),
-        SearchCategory(icon: "building.2.fill", name: "Places", examples: ["Landmark", "Museum", "Park"]),
-        SearchCategory(icon: "calendar", name: "Time", examples: ["Last Week", "Summer 2023", "Yesterday"])
-    ]
+    @State private var selectedTab = 0
+    @State private var isIndexing = false
+    @State private var selectedImageItem: ImageItem?
+    @State private var showToast = false
+    @State private var toastMessage = ""
     
     var body: some View {
         VStack(spacing: 0) {
-            // Enhanced Search Header
-            VStack(spacing: 16) {
-                // Search Bar with AI indicator
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.gray)
-                    
-                    TextField("Search your memories...", text: $searchText)
-                        .textFieldStyle(PlainTextFieldStyle())
-                        .onChange(of: searchText) { newValue in
-                            showingSearchSuggestions = !newValue.isEmpty
-                            updateSearchSuggestions(for: newValue)
-                        }
-                    
-                    if !searchText.isEmpty {
-                        Button(action: {
-                            searchText = ""
-                            showingSearchSuggestions = false
-                        }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.gray)
-                        }
-                    }
-                    
-                    Image(systemName: "sparkles")
-                        .foregroundColor(.blue)
-                        .opacity(isSearching ? 1 : 0.5)
-                }
-                .padding(12)
-                .background(cardBackground)
-                .cornerRadius(15)
-                .padding(.horizontal)
-                
-                // Search Filters
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(SearchFilter.allCases, id: \.self) { filter in
-                            FilterChip(
-                                title: filter.rawValue,
-                                isSelected: selectedSearchFilter == filter
-                            ) {
-                                selectedSearchFilter = filter
-                                performSearch()
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-            }
-            .padding(.vertical, 12)
-            .background(cardBackground)
-            .shadow(color: Color.black.opacity(0.05), radius: 5, y: 5)
-            
-            if showingSearchSuggestions && !searchText.isEmpty {
-                SearchSuggestionsView(
-                    categories: searchCategories,
-                    onSuggestionTapped: { suggestion in
-                        searchText = suggestion
-                        performSearch()
-                        showingSearchSuggestions = false
-                    }
+            // Tab Header with liquid glass
+            HStack(spacing: 0) {
+                TabButton(
+                    title: "Photo Collections",
+                    isSelected: selectedTab == 0,
+                    action: { selectedTab = 0 }
                 )
-                .background(cardBackground)
-            } else {
-                // Grid view with animation
-                ScrollView {
-                    if isLoading {
-                        ProgressView("Loading photos...")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(.top, 100)
-                    } else if filteredImages.isEmpty {
-                        EmptySearchState()
-                    } else {
-                        LazyVGrid(
-                            columns: [
-                                GridItem(.flexible(), spacing: 3),
-                                GridItem(.flexible(), spacing: 3),
-                                GridItem(.flexible(), spacing: 3)
-                            ],
-                            spacing: 3
-                        ) {
-                            ForEach(filteredImages) { item in
-                                NavigationLink(destination: ImageDetailView(image: item)) {
-                                    ImageGridItem(item: item)
-                                        .aspectRatio(1, contentMode: .fill)
-                                }
-                            }
-                        }
-                        .padding(3)
-                    }
+                
+                TabButton(
+                    title: "Indexed Photos",
+                    isSelected: selectedTab == 1,
+                    action: { selectedTab = 1 }
+                )
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: 0)
+                        .fill(.ultraThinMaterial)
+                    
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.white.opacity(0.3),
+                            Color.white.opacity(0.1)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
                 }
-                .animation(.easeInOut, value: filteredImages)
+            )
+            .overlay(
+                VStack {
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    Color.white.opacity(0.6),
+                                    Color.white.opacity(0.1)
+                                ]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(height: 1)
+                        .blur(radius: 0.5)
+                    Spacer()
+                }
+            )
+            
+            // Content based on selected tab
+            if selectedTab == 0 {
+                PhotoCollectionsView(
+                    images: images,
+                    isLoading: isLoading,
+                    isIndexing: $isIndexing,
+                    selectedImageItem: $selectedImageItem,
+                    onIndexImage: indexSelectedImage
+                )
+            } else {
+                IndexedPhotosView(
+                    indexedImages: indexedImages,
+                    isLoading: isLoading
+                )
             }
         }
-        .background(backgroundColor.ignoresSafeArea())
+        .background(
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    Color(red: 0.95, green: 0.97, blue: 1.0),
+                    Color(red: 0.98, green: 0.99, blue: 1.0)
+                ]),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+        )
+        .overlay(
+            // Loading Overlay
+            Group {
+                if isIndexing {
+                    LoadingOverlay()
+                }
+            }
+        )
+        .overlay(
+            // Toast Notification
+            VStack {
+                if showToast {
+                    ToastView(message: toastMessage)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .zIndex(1000)
+                }
+                Spacer()
+            }
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: showToast)
+        )
         .onAppear {
             loadImages()
         }
     }
     
-    private func updateSearchSuggestions(for query: String) {
-        // Simulate AI generating contextual suggestions
-        isSearching = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            isSearching = false
-            // In a real app, this would call the AI backend
-            searchSuggestions = searchCategories.flatMap { $0.examples }
-                .filter { $0.lowercased().contains(query.lowercased()) }
-        }
-    }
-    
-    private func performSearch() {
-        isSearching = true
-        // Simulate search delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            isSearching = false
-            if searchText.isEmpty {
-                filteredImages = images
-            } else {
-                // Filter based on selected filter and search text
-                filteredImages = images.filter { item in
-                    let searchableText = item.metadata.values
-                        .compactMap { $0 as? String }
-                        .joined(separator: " ")
-                        .lowercased()
+    private func indexSelectedImage() {
+        guard let selectedItem = selectedImageItem else { return }
+        
+        isIndexing = true
+        
+        // Perform actual image analysis with Google Vision API
+        ImageAnalyzer.shared.analyzeImage(selectedItem.image, location: nil) { metadata in
+            DispatchQueue.main.async {
+                
+                // Update the selected image to be indexed
+                if let index = images.firstIndex(where: { $0.id == selectedItem.id }) {
+                    let updatedItem = images[index]
+                    var updatedMetadata = updatedItem.metadata
+                    updatedMetadata["isIndexed"] = true
+                    updatedMetadata["brands"] = metadata.brands
+                    updatedMetadata["searchableText"] = metadata.searchableText
+                    updatedMetadata["productInfo"] = metadata.productInfo.toDictionary()
                     
-                    switch selectedSearchFilter {
-                    case .all:
-                        return searchableText.contains(searchText.lowercased())
-                    case .recent:
-                        // Filter for images within the last week
-                        let oneWeekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-                        return item.timestamp >= oneWeekAgo
-                    case .brands:
-                        // Filter for brand-related metadata
-                        if let brands = item.metadata["brands"] as? [String] {
-                            return brands.contains { $0.lowercased().contains(searchText.lowercased()) }
-                        }
-                        return false
-                    case .favorites:
-                        // Filter for favorited images
-                        return (item.metadata["isFavorite"] as? Bool) == true
-                    case .people:
-                        // Filter for people-related metadata
-                        if let faces = item.metadata["faces"] as? [String] {
-                            return faces.contains { $0.lowercased().contains(searchText.lowercased()) }
-                        }
-                        return false
-                    case .places:
-                        // Filter for location-related metadata
-                        if let location = item.metadata["location"] as? String {
-                            return location.lowercased().contains(searchText.lowercased())
-                        }
-                        return false
-                    case .objects:
-                        // Filter for object-related metadata
-                        if let objects = item.metadata["objects"] as? [String] {
-                            return objects.contains { $0.lowercased().contains(searchText.lowercased()) }
-                        }
-                        return false
+                    
+                    let indexedItem = ImageItem(
+                        id: updatedItem.id,
+                        image: updatedItem.image,
+                        metadata: updatedMetadata,
+                        timestamp: updatedItem.timestamp
+                    )
+                    
+                    // Update the image in the array
+                    images[index] = indexedItem
+                    
+                    // Add to indexed images if not already there
+                    if !indexedImages.contains(where: { $0.id == indexedItem.id }) {
+                        indexedImages.append(indexedItem)
+                    }
+                    
+                    // Save to Core Data
+                    MetadataManager.shared.saveImageMetadata(metadata)
+                }
+                
+                isIndexing = false
+                selectedImageItem = nil
+                
+                // Show success toast
+                toastMessage = "Selected image is indexed"
+                showToast = true
+                
+                // Auto-hide toast after 3 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                    withAnimation {
+                        showToast = false
                     }
                 }
             }
@@ -373,14 +499,12 @@ struct CapsuleRepositoryView: View {
         
         // Get the workspace directory path
         let workspacePath = "/Users/administrator/Documents/snap capsule/images"
-        print("Attempting to load images from absolute path: \(workspacePath)")
         
         let fileManager = FileManager.default
         
         do {
             // List all files in directory
             let files = try fileManager.contentsOfDirectory(atPath: workspacePath)
-            print("Found files: \(files)")
             
             // Filter for image files
             let imageFiles = files.filter { file in
@@ -388,17 +512,13 @@ struct CapsuleRepositoryView: View {
                 return ["jpg", "jpeg", "png", "heic"].contains(fileExtension)
             }.filter { !$0.hasPrefix(".") }
             
-            print("Found image files: \(imageFiles)")
             
             // Process each image file
             var newImages: [ImageItem] = []
             
             for file in imageFiles {
                 let fullPath = (workspacePath as NSString).appendingPathComponent(file)
-                print("Loading image from: \(fullPath)")
-                
                 if let image = UIImage(contentsOfFile: fullPath) {
-                    print("Successfully loaded image: \(file)")
                     
                     // Get file attributes for metadata
                     let attributes = try fileManager.attributesOfItem(atPath: fullPath)
@@ -418,23 +538,21 @@ struct CapsuleRepositoryView: View {
                         timestamp: creationDate
                     )
                     newImages.append(imageItem)
-                } else {
-                    print("Failed to load image: \(file)")
                 }
             }
             
-            print("Total images loaded: \(newImages.count)")
             
             // Update UI on main thread
             DispatchQueue.main.async {
                 self.images = newImages.sorted(by: { $0.timestamp > $1.timestamp })
-                self.filteredImages = self.images
+                // Separate indexed images
+                self.indexedImages = newImages.filter { item in
+                    item.metadata["isIndexed"] as? Bool == true
+                }.sorted(by: { $0.timestamp > $1.timestamp })
                 self.isLoading = false
             }
             
         } catch {
-            print("Error loading images: \(error)")
-            print("Attempted to load from path: \(workspacePath)")
             DispatchQueue.main.async {
                 self.isLoading = false
             }
@@ -442,149 +560,490 @@ struct CapsuleRepositoryView: View {
     }
 }
 
-enum SearchFilter: String, CaseIterable {
-    case all = "All"
-    case recent = "Recent"
-    case brands = "Brands"
-    case favorites = "Favorites"
-    case people = "People"
-    case places = "Places"
-    case objects = "Objects"
-}
-
-struct SearchCategory {
-    let icon: String
-    let name: String
-    let examples: [String]
-}
-
-struct FilterChip: View {
+// MARK: - Tab Components
+struct TabButton: View {
     let title: String
     let isSelected: Bool
     let action: () -> Void
+    @State private var isPressed = false
     
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.subheadline)
-                .fontWeight(isSelected ? .semibold : .regular)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(isSelected ? Color.blue : Color(.systemGray6))
-                .foregroundColor(isSelected ? .white : .primary)
-                .cornerRadius(20)
+                .font(.system(size: 16, weight: isSelected ? .semibold : .medium))
+                .foregroundStyle(
+                    isSelected ?
+                    LinearGradient(
+                        gradient: Gradient(colors: [.blue, .purple]),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ) :
+                    LinearGradient(
+                        gradient: Gradient(colors: [.gray, .gray]),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    ZStack {
+                        if isSelected {
+                            Capsule()
+                                .fill(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [
+                                            Color.blue.opacity(0.15),
+                                            Color.purple.opacity(0.15)
+                                        ]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .blur(radius: 8)
+                        }
+                    }
+                )
+                .scaleEffect(isPressed ? 0.95 : 1.0)
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    withAnimation(.spring(response: 0.2, dampingFraction: 0.6)) {
+                        isPressed = true
+                    }
+                }
+                .onEnded { _ in
+                    withAnimation(.spring(response: 0.2, dampingFraction: 0.6)) {
+                        isPressed = false
+                    }
+                }
+        )
+    }
+}
+
+// MARK: - Photo Collections View
+struct PhotoCollectionsView: View {
+    let images: [ImageItem]
+    let isLoading: Bool
+    @Binding var isIndexing: Bool
+    @Binding var selectedImageItem: ImageItem?
+    let onIndexImage: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Index Image Button
+            VStack(spacing: 16) {
+                if selectedImageItem != nil {
+                    Button(action: onIndexImage) {
+                        HStack(spacing: 12) {
+                            if isIndexing {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                    .tint(.white)
+                            } else {
+                                Image(systemName: "sparkles")
+                                    .font(.title2)
+                            }
+                            
+                            Text(isIndexing ? "Indexing..." : "Index Selected Image")
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [
+                                                Color.blue,
+                                                Color.purple
+                                            ]),
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [
+                                                Color.white.opacity(0.2),
+                                                Color.white.opacity(0.0)
+                                            ]),
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
+                                    )
+                            }
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [
+                                            Color.white.opacity(0.4),
+                                            Color.white.opacity(0.1)
+                                        ]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1
+                                )
+                        )
+                        .shadow(color: .blue.opacity(0.4), radius: 16, y: 8)
+                    }
+                    .disabled(isIndexing)
+                    .padding(.horizontal)
+                    .padding(.top, 16)
+                    
+                    // Removed the "Processing your image..." text as we now have a full-screen loader
+                } else {
+                    Text("Tap on a photo to select it for indexing")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal)
+                        .padding(.top, 16)
+                }
+            }
+            .padding(.bottom, 16)
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: 0)
+                        .fill(.ultraThinMaterial)
+                }
+            )
+            
+            // Photo Grid
+            ScrollView {
+                if isLoading {
+                    ProgressView("Loading photos...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.top, 100)
+                } else if images.isEmpty {
+                    EmptyPhotoCollectionsState()
+                } else {
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: 3),
+                            GridItem(.flexible(), spacing: 3),
+                            GridItem(.flexible(), spacing: 3)
+                        ],
+                        spacing: 3
+                    ) {
+                        ForEach(images) { item in
+                            SelectableImageGridItem(
+                                item: item,
+                                isSelected: selectedImageItem?.id == item.id,
+                                onTap: {
+                                    if selectedImageItem?.id == item.id {
+                                        selectedImageItem = nil
+                                    } else {
+                                        selectedImageItem = item
+                                    }
+                                }
+                            )
+                            .aspectRatio(1, contentMode: .fill)
+                        }
+                    }
+                    .padding(3)
+                }
+            }
         }
     }
 }
 
-struct SearchSuggestionsView: View {
-    let categories: [SearchCategory]
-    let onSuggestionTapped: (String) -> Void
+// MARK: - Indexed Photos View
+struct IndexedPhotosView: View {
+    let indexedImages: [ImageItem]
+    let isLoading: Bool
     
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                ForEach(categories, id: \.name) { category in
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Image(systemName: category.icon)
-                                .foregroundColor(.blue)
-                            Text(category.name)
-                                .font(.headline)
-                        }
-                        
-                        FlowLayout(spacing: 8) {
-                            ForEach(category.examples, id: \.self) { example in
-                                SuggestionChip(text: example) {
-                                    onSuggestionTapped(example)
-                                }
-                            }
+            if isLoading {
+                ProgressView("Loading indexed photos...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.top, 100)
+            } else if indexedImages.isEmpty {
+                EmptyIndexedPhotosState()
+            } else {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 3),
+                        GridItem(.flexible(), spacing: 3),
+                        GridItem(.flexible(), spacing: 3)
+                    ],
+                    spacing: 3
+                ) {
+                    ForEach(indexedImages) { item in
+                        NavigationLink(destination: ImageDetailView(image: item)) {
+                            IndexedImageGridItem(item: item)
+                                .aspectRatio(1, contentMode: .fill)
                         }
                     }
-                    .padding(.horizontal)
                 }
+                .padding(3)
             }
-            .padding(.vertical)
         }
-        .background(Color(.systemBackground))
     }
 }
 
-struct SuggestionChip: View {
-    let text: String
-    let action: () -> Void
+// MARK: - Selectable Image Grid Item
+struct SelectableImageGridItem: View {
+    let item: ImageItem
+    let isSelected: Bool
+    let onTap: () -> Void
     
     var body: some View {
-        Button(action: action) {
-            Text(text)
-                .font(.subheadline)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color(.systemGray6))
-                .cornerRadius(12)
+        Button(action: onTap) {
+            ZStack(alignment: .bottomLeading) {
+                Image(uiImage: item.image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                    .clipped()
+                    .overlay(
+                        Rectangle()
+                            .fill(LinearGradient(
+                                gradient: Gradient(colors: [.clear, .black.opacity(0.5)]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ))
+                    )
+                
+                // Selection overlay with glass effect
+                if isSelected {
+                    ZStack {
+                        Rectangle()
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color.blue.opacity(0.4),
+                                        Color.purple.opacity(0.4)
+                                    ]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .overlay(
+                                Rectangle()
+                                    .fill(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [
+                                                Color.white.opacity(0.2),
+                                                Color.white.opacity(0.0)
+                                            ]),
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
+                                    )
+                            )
+                        
+                        VStack {
+                            HStack {
+                                Spacer()
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.title)
+                                    .foregroundColor(.white)
+                                    .background(
+                                        Circle()
+                                            .fill(
+                                                LinearGradient(
+                                                    gradient: Gradient(colors: [.blue, .purple]),
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            )
+                                            .frame(width: 36, height: 36)
+                                            .shadow(color: .blue.opacity(0.5), radius: 8, y: 4)
+                                    )
+                                    .padding(8)
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+                
+                // Show file name and date with better formatting
+                VStack(alignment: .leading, spacing: 4) {
+                    if let fileName = item.metadata["fileName"] as? String {
+                        Text(fileName.replacingOccurrences(of: ".JPG", with: ""))
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .lineLimit(1)
+                    }
+                    
+                    Text(item.timestamp, style: .date)
+                        .font(.caption2)
+                        .opacity(0.9)
+                        .lineLimit(1)
+                }
+                .foregroundColor(.white)
+                .padding(8)
+                .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 1)
+            }
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Empty States
+struct EmptyPhotoCollectionsState: View {
+    var body: some View {
+        VStack(spacing: 24) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color.blue.opacity(0.1),
+                                Color.purple.opacity(0.1)
+                            ]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 120, height: 120)
+                    .blur(radius: 20)
+                
+                Image(systemName: "photo.stack")
+                    .font(.system(size: 64))
+                    .foregroundStyle(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.blue, .purple]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            
+            VStack(spacing: 8) {
+                Text("No Photos Yet")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Text("Add some photos to get started!")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.top, 50)
+    }
+}
+
+struct EmptyIndexedPhotosState: View {
+    var body: some View {
+        VStack(spacing: 24) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color.blue.opacity(0.1),
+                                Color.purple.opacity(0.1)
+                            ]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 120, height: 120)
+                    .blur(radius: 20)
+                
+                Image(systemName: "sparkles")
+                    .font(.system(size: 64))
+                    .foregroundStyle(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.blue, .purple]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            
+            VStack(spacing: 8) {
+                Text("No Indexed Photos")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Text("Index some photos to see them here!")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.top, 50)
+    }
+}
+
+// MARK: - Indexed Image Grid Item
+struct IndexedImageGridItem: View {
+    let item: ImageItem
+    
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            Image(uiImage: item.image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                .clipped()
+                .overlay(
+                    Rectangle()
+                        .fill(LinearGradient(
+                            gradient: Gradient(colors: [.clear, .black.opacity(0.5)]),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ))
+                )
+            
+            // Indexed badge and brand info
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Image(systemName: "sparkles")
+                        .font(.caption)
+                        .foregroundColor(.yellow)
+                    Text("INDEXED")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.yellow)
+                }
+                
+                // Show detected brands if available
+                if let brands = item.metadata["brands"] as? [BrandDetectionResult], !brands.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "tag.fill")
+                            .font(.caption2)
+                            .foregroundColor(.blue)
+                        Text(brands.first?.brandName ?? "")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundColor(.blue)
+                            .lineLimit(1)
+                    }
+                }
+                
+                if let fileName = item.metadata["fileName"] as? String {
+                    Text(fileName.replacingOccurrences(of: ".JPG", with: ""))
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                }
+                
+                Text(item.timestamp, style: .date)
+                    .font(.caption2)
+                    .opacity(0.9)
+                    .lineLimit(1)
+            }
+            .foregroundColor(.white)
+            .padding(8)
+            .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 1)
         }
     }
 }
 
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-    
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = arrangeSubviews(proposal: proposal, subviews: subviews)
-        return CGSize(
-            width: proposal.width ?? .zero,
-            height: rows.last?.maxY ?? .zero
-        )
-    }
-    
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let rows = arrangeSubviews(proposal: proposal, subviews: subviews)
-        for row in rows {
-            for element in row.subviews {
-                element.subview.place(
-                    at: CGPoint(x: bounds.minX + element.origin.x, y: bounds.minY + row.minY),
-                    anchor: .topLeading,
-                    proposal: ProposedViewSize(width: element.size.width, height: element.size.height)
-                )
-            }
-        }
-    }
-    
-    private func arrangeSubviews(proposal: ProposedViewSize, subviews: Subviews) -> [Row] {
-        var rows: [Row] = []
-        var currentRow = Row(minY: 0)
-        var x: CGFloat = 0
-        
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > (proposal.width ?? .zero) {
-                rows.append(currentRow)
-                currentRow = Row(minY: currentRow.maxY + spacing)
-                x = 0
-            }
-            
-            currentRow.add(subview, origin: CGPoint(x: x, y: 0), size: size)
-            x += size.width + spacing
-        }
-        
-        if !currentRow.subviews.isEmpty {
-            rows.append(currentRow)
-        }
-        
-        return rows
-    }
-    
-    struct Row {
-        var minY: CGFloat
-        var maxY: CGFloat = 0
-        var subviews: [(subview: LayoutSubview, origin: CGPoint, size: CGSize)] = []
-        
-        mutating func add(_ subview: LayoutSubview, origin: CGPoint, size: CGSize) {
-            subviews.append((subview: subview, origin: origin, size: size))
-            maxY = max(maxY, minY + size.height)
-        }
-    }
-}
 
 struct ImageGridItem: View {
     let item: ImageItem
@@ -626,25 +1085,6 @@ struct ImageGridItem: View {
     }
 }
 
-struct EmptySearchState: View {
-    var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "sparkles.magnifyingglass")
-                .font(.system(size: 64))
-                .foregroundColor(.blue)
-            
-            Text("AI-Powered Search")
-                .font(.title2)
-                .fontWeight(.semibold)
-            
-            Text("Search by location, objects, people,\nbrands, or any memory you can think of!")
-                .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.top, 50)
-    }
-}
 
 struct ImageItem: Identifiable, Equatable {
     let id: UUID
@@ -659,6 +1099,9 @@ struct ImageItem: Identifiable, Equatable {
 
 struct ImageDetailView: View {
     let image: ImageItem
+    @State private var detectedBrands: [BrandDetectionResult] = []
+    @State private var isLoadingBrands = false
+    @State private var productInfo: ProductInfo?
     
     var body: some View {
         ScrollView {
@@ -667,6 +1110,15 @@ struct ImageDetailView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity)
+                
+                // Brand Detection Section
+                if image.metadata["isIndexed"] as? Bool == true {
+                    BrandDetectionView(brands: detectedBrands, productInfo: productInfo)
+                        .padding(.horizontal)
+                        .onAppear {
+                            loadBrandInformation()
+                        }
+                }
                 
                 ImageMetadataContent(image: image.image, metadata: image.metadata)
                     .padding()
@@ -677,6 +1129,72 @@ struct ImageDetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
     }
+    
+    private func loadBrandInformation() {
+        // Check if brands are already stored in metadata
+        if let brandsData = image.metadata["brands"] as? [BrandDetectionResult] {
+            detectedBrands = brandsData
+            print("✅ Loaded \(brandsData.count) brands from metadata")
+        }
+        
+        // Extract product info from metadata
+        if let productInfoDict = image.metadata["productInfo"] as? [String: Any] {
+            productInfo = ProductInfo.fromDictionary(productInfoDict)
+            print("✅ Loaded productInfo from metadata: gender=\(productInfo?.gender ?? "nil"), brand=\(productInfo?.brand ?? "nil"), product=\(productInfo?.product ?? "nil")")
+            print("✅ ProductInfo isValid: \(productInfo?.isValid ?? false)")
+        } else {
+            print("⚠️ No productInfo found in metadata - attempting on-the-fly extraction")
+            
+            // Try to extract productInfo on-the-fly from metadata
+            var labels: [String] = []
+            if let labelsData = image.metadata["labels"] as? [String] {
+                labels = labelsData
+            }
+            
+            // Get brands from metadata
+            var brandsData: [BrandDetectionResult] = []
+            if let brandsArray = image.metadata["brands"] as? [BrandDetectionResult] {
+                brandsData = brandsArray
+            }
+            
+            // If no brands but we have labels, try to extract from labels
+            if brandsData.isEmpty && !labels.isEmpty {
+                print("⚠️ No brands in metadata, but labels available: \(labels)")
+            }
+            
+            // Try to extract product info even if we don't have brands
+            let extractedProductInfo = ProductAnalyzer.shared.extractProductInfo(
+                from: labels,
+                objects: image.metadata["objects"] as? [String] ?? [],
+                brands: brandsData,
+                faces: image.metadata["faces"] as? [String] ?? []
+            )
+            
+            if extractedProductInfo.isValid {
+                productInfo = extractedProductInfo
+                print("✅ Extracted productInfo on-the-fly: gender=\(productInfo?.gender ?? "nil"), brand=\(productInfo?.brand ?? "nil"), product=\(productInfo?.product ?? "nil")")
+            } else {
+                print("⚠️ On-the-fly extraction failed - Brand: \(extractedProductInfo.brand ?? "nil"), Product: \(extractedProductInfo.product ?? "nil")")
+            }
+        }
+        
+        // If brands not stored, detect brands using Google Vision API
+        if detectedBrands.isEmpty {
+            isLoadingBrands = true
+            GoogleVisionService.shared.detectLogos(in: image.image) { result in
+                DispatchQueue.main.async {
+                    isLoadingBrands = false
+                    switch result {
+                    case .success(let brands):
+                        detectedBrands = brands
+                    case .failure(let error):
+                        // Handle error silently in production
+                        detectedBrands = []
+                    }
+                }
+            }
+        }
+    }
 }
 
 struct FooterMenuItem: View {
@@ -684,46 +1202,134 @@ struct FooterMenuItem: View {
     let title: String
     let isSelected: Bool
     let action: () -> Void
+    @State private var isPressed = false
     
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 24))
+            VStack(spacing: 6) {
+                ZStack {
+                    if isSelected {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color.blue.opacity(0.2),
+                                        Color.purple.opacity(0.2)
+                                    ]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 50, height: 50)
+                            .blur(radius: 8)
+                    }
+                    
+                    Image(systemName: icon)
+                        .font(.system(size: isSelected ? 26 : 24, weight: isSelected ? .semibold : .regular))
+                        .foregroundStyle(
+                            isSelected ?
+                            LinearGradient(
+                                gradient: Gradient(colors: [.blue, .purple]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ) :
+                            LinearGradient(
+                                gradient: Gradient(colors: [.gray, .gray]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+                
                 Text(title)
-                    .font(.caption)
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                    .foregroundColor(isSelected ? .primary : .secondary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
-            .foregroundColor(isSelected ? .white : .gray)
+            .scaleEffect(isPressed ? 0.9 : 1.0)
         }
         .buttonStyle(PlainButtonStyle())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    withAnimation(.spring(response: 0.2, dampingFraction: 0.6)) {
+                        isPressed = true
+                    }
+                }
+                .onEnded { _ in
+                    withAnimation(.spring(response: 0.2, dampingFraction: 0.6)) {
+                        isPressed = false
+                    }
+                }
+        )
     }
 }
 
 struct PeopleSearchBar: View {
     @Binding var text: String
     let onSearch: () -> Void
+    @FocusState private var isFocused: Bool
     
     var body: some View {
         HStack {
-            HStack {
+            HStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundColor(.gray)
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 18))
+                
                 TextField("Search people...", text: $text)
+                    .focused($isFocused)
                     .autocapitalization(.none)
                     .onSubmit(onSearch)
                 
                 if !text.isEmpty {
-                    Button(action: { text = "" }) {
+                    Button(action: {
+                        text = ""
+                        isFocused = false
+                    }) {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.gray)
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 18))
                     }
                 }
             }
-            .padding(8)
-            .background(Color(.systemGray6))
-            .cornerRadius(10)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(.ultraThinMaterial)
+                    
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    Color.white.opacity(isFocused ? 0.4 : 0.2),
+                                    Color.white.opacity(isFocused ? 0.3 : 0.1)
+                                ]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color.white.opacity(0.6),
+                                Color.white.opacity(0.2)
+                            ]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: isFocused ? 1.5 : 1
+                    )
+            )
+            .shadow(color: Color.black.opacity(0.05), radius: isFocused ? 12 : 8, y: isFocused ? 6 : 4)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isFocused)
         }
     }
 }
@@ -742,7 +1348,12 @@ struct ConnectView: View {
             // Search bar for finding friends
             PeopleSearchBar(text: $searchText, onSearch: searchFriends)
                 .padding()
-                .background(Color(.systemBackground))
+                .background(
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 0)
+                            .fill(.ultraThinMaterial)
+                    }
+                )
             
             // Segment control
             Picker("View", selection: $selectedSegment) {
@@ -863,9 +1474,39 @@ struct FriendRow: View {
             }
         }
         .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 2, y: 2)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.thinMaterial)
+                
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color.white.opacity(0.3),
+                                Color.white.opacity(0.1)
+                            ]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.white.opacity(0.5),
+                            Color.white.opacity(0.2)
+                        ]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .shadow(color: Color.black.opacity(0.08), radius: 10, y: 4)
         .sheet(isPresented: $isShowingShareSheet) {
             ShareSheet(friend: friend)
         }
@@ -999,9 +1640,49 @@ struct RequestRow: View {
                         .fontWeight(.semibold)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(Color.blue)
-                        .cornerRadius(8)
+                        .padding(.vertical, 12)
+                        .background(
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [
+                                                Color.blue,
+                                                Color.purple
+                                            ]),
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [
+                                                Color.white.opacity(0.2),
+                                                Color.white.opacity(0.0)
+                                            ]),
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
+                                    )
+                            }
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [
+                                            Color.white.opacity(0.4),
+                                            Color.white.opacity(0.1)
+                                        ]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1
+                                )
+                        )
+                        .shadow(color: .blue.opacity(0.3), radius: 8, y: 4)
                 }
                 
                 Button(action: { /* Decline friend request */ }) {
@@ -1009,16 +1690,76 @@ struct RequestRow: View {
                         .fontWeight(.semibold)
                         .foregroundColor(.blue)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(Color.blue.opacity(0.1))
-                        .cornerRadius(8)
+                        .padding(.vertical, 12)
+                        .background(
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(.ultraThinMaterial)
+                                
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [
+                                                Color.blue.opacity(0.15),
+                                                Color.blue.opacity(0.05)
+                                            ]),
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                            }
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [
+                                            Color.blue.opacity(0.4),
+                                            Color.blue.opacity(0.2)
+                                        ]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1
+                                )
+                        )
                 }
             }
         }
         .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 2, y: 2)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.thinMaterial)
+                
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color.white.opacity(0.3),
+                                Color.white.opacity(0.1)
+                            ]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.white.opacity(0.5),
+                            Color.white.opacity(0.2)
+                        ]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .shadow(color: Color.black.opacity(0.08), radius: 10, y: 4)
     }
 }
 
@@ -1065,15 +1806,75 @@ struct SuggestionRow: View {
                     .fontWeight(.semibold)
                     .foregroundColor(.blue)
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.blue.opacity(0.1))
-                    .cornerRadius(8)
+                    .padding(.vertical, 10)
+                    .background(
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(.ultraThinMaterial)
+                            
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [
+                                            Color.blue.opacity(0.15),
+                                            Color.blue.opacity(0.05)
+                                        ]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        }
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color.blue.opacity(0.4),
+                                        Color.blue.opacity(0.2)
+                                    ]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                    )
             }
         }
         .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 2, y: 2)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.thinMaterial)
+                
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color.white.opacity(0.3),
+                                Color.white.opacity(0.1)
+                            ]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.white.opacity(0.5),
+                            Color.white.opacity(0.2)
+                        ]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .shadow(color: Color.black.opacity(0.08), radius: 10, y: 4)
     }
 }
 
@@ -1123,28 +1924,82 @@ struct SettingsView: View {
                         Toggle(isOn: $locationPermission) {
                             HStack {
                                 Image(systemName: "location.fill")
-                                    .foregroundColor(.blue)
+                                    .foregroundStyle(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [.blue, .purple]),
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
                                 Text("Location Access")
                             }
                         }
                         .padding()
-                        .background(Color(.systemBackground))
+                        .background(
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 0)
+                                    .fill(.ultraThinMaterial)
+                            }
+                        )
                         
                         Divider()
                             .padding(.horizontal)
+                            .background(Color.white.opacity(0.3))
                         
                         Toggle(isOn: $mediaPermission) {
                             HStack {
                                 Image(systemName: "photo.fill")
-                                    .foregroundColor(.blue)
+                                    .foregroundStyle(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [.blue, .purple]),
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
                                 Text("Media Access")
                             }
                         }
                         .padding()
-                        .background(Color(.systemBackground))
+                        .background(
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 0)
+                                    .fill(.ultraThinMaterial)
+                            }
+                        )
                     }
-                    .cornerRadius(12)
-                    .shadow(color: Color.black.opacity(0.05), radius: 2, y: 2)
+                    .background(
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(.thinMaterial)
+                            
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [
+                                            Color.white.opacity(0.3),
+                                            Color.white.opacity(0.1)
+                                        ]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        }
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color.white.opacity(0.5),
+                                        Color.white.opacity(0.2)
+                                    ]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                    )
+                    .shadow(color: Color.black.opacity(0.08), radius: 12, y: 6)
                 }
                 
                 // Subscription Section
@@ -1156,18 +2011,54 @@ struct SettingsView: View {
                     Button(action: { showingSubscriptionSheet = true }) {
                         HStack {
                             Image(systemName: "star.circle.fill")
-                                .foregroundColor(.yellow)
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [.yellow, .orange]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
                             Text("Upgrade to Premium")
                                 .fontWeight(.semibold)
                             Spacer()
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.gray)
+                                .foregroundColor(.secondary)
                         }
                         .padding()
-                        .background(Color(.systemBackground))
-                        .cornerRadius(12)
-                        .shadow(color: Color.black.opacity(0.05), radius: 2, y: 2)
+                        .background(
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(.thinMaterial)
+                                
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [
+                                                Color.white.opacity(0.3),
+                                                Color.white.opacity(0.1)
+                                            ]),
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                            }
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [
+                                            Color.white.opacity(0.5),
+                                            Color.white.opacity(0.2)
+                                        ]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1
+                                )
+                        )
+                        .shadow(color: Color.black.opacity(0.08), radius: 12, y: 6)
                     }
                 }
                 
@@ -1181,53 +2072,119 @@ struct SettingsView: View {
                         Button(action: { showingHelpSheet = true }) {
                             HStack {
                                 Image(systemName: "questionmark.circle.fill")
-                                    .foregroundColor(.blue)
+                                    .foregroundStyle(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [.blue, .purple]),
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
                                 Text("Help & Support")
                                 Spacer()
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.gray)
+                                    .foregroundColor(.secondary)
                             }
                             .padding()
-                            .background(Color(.systemBackground))
+                            .background(
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 0)
+                                        .fill(.ultraThinMaterial)
+                                }
+                            )
                         }
                         
                         Divider()
                             .padding(.horizontal)
+                            .background(Color.white.opacity(0.3))
                         
                         Button(action: { showingContactSheet = true }) {
                             HStack {
                                 Image(systemName: "envelope.fill")
-                                    .foregroundColor(.blue)
+                                    .foregroundStyle(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [.blue, .purple]),
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
                                 Text("Contact Us")
                                 Spacer()
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.gray)
+                                    .foregroundColor(.secondary)
                             }
                             .padding()
-                            .background(Color(.systemBackground))
+                            .background(
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 0)
+                                        .fill(.ultraThinMaterial)
+                                }
+                            )
                         }
                         
                         Divider()
                             .padding(.horizontal)
+                            .background(Color.white.opacity(0.3))
                         
                         Button(action: { showingAboutSheet = true }) {
                             HStack {
                                 Image(systemName: "info.circle.fill")
-                                    .foregroundColor(.blue)
+                                    .foregroundStyle(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [.blue, .purple]),
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
                                 Text("About Us")
                                 Spacer()
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.gray)
+                                    .foregroundColor(.secondary)
                             }
                             .padding()
-                            .background(Color(.systemBackground))
+                            .background(
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 0)
+                                        .fill(.ultraThinMaterial)
+                                }
+                            )
                         }
                     }
-                    .cornerRadius(12)
-                    .shadow(color: Color.black.opacity(0.05), radius: 2, y: 2)
+                    .background(
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(.thinMaterial)
+                            
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [
+                                            Color.white.opacity(0.3),
+                                            Color.white.opacity(0.1)
+                                        ]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        }
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color.white.opacity(0.5),
+                                        Color.white.opacity(0.2)
+                                    ]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                    )
+                    .shadow(color: Color.black.opacity(0.08), radius: 12, y: 6)
                 }
                 
                 // Version info
@@ -1582,6 +2539,168 @@ struct AboutUsView: View {
         }) {
             Image(systemName: icon)
                 .foregroundColor(.blue)
+        }
+    }
+}
+
+// MARK: - Loading Overlay
+struct LoadingOverlay: View {
+    @State private var rotation: Double = 0
+    
+    var body: some View {
+        ZStack {
+            // Semi-transparent background
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+            
+            // Loading card
+            VStack(spacing: 24) {
+                // Animated spinner
+                ZStack {
+                    Circle()
+                        .stroke(Color.blue.opacity(0.2), lineWidth: 8)
+                        .frame(width: 80, height: 80)
+                    
+                    Circle()
+                        .trim(from: 0, to: 0.7)
+                        .stroke(
+                            LinearGradient(
+                                gradient: Gradient(colors: [.blue, .blue.opacity(0.6)]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                        )
+                        .frame(width: 80, height: 80)
+                        .rotationEffect(.degrees(rotation))
+                }
+                
+                // Loading text
+                VStack(spacing: 8) {
+                    Text("Indexing Image...")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                    
+                    Text("Please wait while we analyze your image")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .padding(32)
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: 24)
+                        .fill(.regularMaterial)
+                    
+                    RoundedRectangle(cornerRadius: 24)
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    Color.white.opacity(0.4),
+                                    Color.white.opacity(0.2)
+                                ]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24)
+                        .stroke(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    Color.white.opacity(0.6),
+                                    Color.white.opacity(0.3)
+                                ]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1.5
+                        )
+                )
+                .shadow(color: Color.black.opacity(0.25), radius: 30, y: 15)
+            )
+            .padding(40)
+        }
+        .onAppear {
+            startRotation()
+        }
+    }
+    
+    private func startRotation() {
+        rotation = 0
+        withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
+            rotation = 360
+        }
+    }
+}
+
+// MARK: - Toast Notification
+struct ToastView: View {
+    let message: String
+    @State private var opacity: Double = 0
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title3)
+                .foregroundColor(.white)
+            
+            Text(message)
+                .font(.headline)
+                .fontWeight(.medium)
+                .foregroundColor(.white)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .background(
+            ZStack {
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.green, .green.opacity(0.8)]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color.white.opacity(0.3),
+                                Color.white.opacity(0.0)
+                            ]),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+            .overlay(
+                Capsule()
+                    .stroke(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color.white.opacity(0.5),
+                                Color.white.opacity(0.2)
+                            ]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        ),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(color: Color.green.opacity(0.4), radius: 16, y: 8)
+        )
+        .padding(.horizontal, 20)
+        .padding(.top, 60)
+        .opacity(opacity)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                opacity = 1
+            }
         }
     }
 }

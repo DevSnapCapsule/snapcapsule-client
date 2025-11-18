@@ -63,6 +63,20 @@ class MetadataManager {
             faceEntity.image = imageEntity
         }
         
+        // Save brands
+        metadata.brands.forEach { brand in
+            let brandEntity = BrandEntity(context: context)
+            brandEntity.name = brand.brandName
+            brandEntity.confidence = brand.confidence
+            if let boundingBox = brand.boundingBox {
+                brandEntity.boundingBoxX = boundingBox.origin.x
+                brandEntity.boundingBoxY = boundingBox.origin.y
+                brandEntity.boundingBoxWidth = boundingBox.size.width
+                brandEntity.boundingBoxHeight = boundingBox.size.height
+            }
+            brandEntity.image = imageEntity
+        }
+        
         do {
             try context.save()
         } catch {

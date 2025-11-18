@@ -12,7 +12,9 @@ struct ImageMetadata {
     let objects: [String]
     let scenes: [String]
     let faces: [String]
+    let brands: [BrandDetectionResult]
     let searchableText: String
+    let productInfo: ProductInfo
 }
 
 class ImageAnalyzer {
@@ -23,11 +25,16 @@ class ImageAnalyzer {
     func analyzeImage(_ image: UIImage, location: CLLocation?, completion: @escaping (ImageMetadata) -> Void) {
         guard let cgImage = image.cgImage else { return }
         
+        // Resize image for optimal processing and API efficiency
+        let optimizedImage = resizeImageForAnalysis(image)
+        guard let optimizedCGImage = optimizedImage.cgImage else { return }
+        
         var labels: Set<String> = []
         var objects: Set<String> = []
         var scenes: Set<String> = []
         var faces: Set<String> = []
         var colors: Set<String> = []
+        var brands: [BrandDetectionResult] = []
         
         let group = DispatchGroup()
         
@@ -70,17 +77,52 @@ class ImageAnalyzer {
             }
         }
         
+        // Detect logos and labels using Google Cloud Vision API with optimized image
+        group.enter()
+        var visionLabels: [String] = []
+        GoogleVisionService.shared.detectLabelsAndLogos(in: optimizedImage) { result in
+            defer { group.leave() }
+            switch result {
+            case .success(let (detectedBrands, detectedLabels)):
+                brands = detectedBrands
+                visionLabels = detectedLabels
+                // Add vision labels to the labels set
+                for label in detectedLabels {
+                    labels.insert(label)
+                }
+            case .failure(let error):
+                // Handle logo detection error silently
+                brands = []
+                visionLabels = []
+            }
+        }
+        
         // Analyze colors
         let dominantColors = analyzeDominantColors(in: image)
         colors = Set(dominantColors)
         
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        let handler = VNImageRequestHandler(cgImage: optimizedCGImage, options: [:])
         try? handler.perform([classificationRequest, faceRequest, textRequest])
         
         group.notify(queue: .main) {
-            // Combine all text for searching
-            let searchableText = (labels.union(objects).union(scenes).union(faces).union(colors))
+            // Combine all text for searching, including brand names
+            let brandNames = brands.map { $0.brandName }
+            let searchableText = (labels.union(objects).union(scenes).union(faces).union(colors).union(Set(brandNames)))
                 .joined(separator: " ")
+            
+            // Extract product information (gender, brand, product type)
+            // Use labels from both Vision framework and Google Vision API
+            let allLabelsArray = Array(labels)
+            let productInfo = ProductAnalyzer.shared.extractProductInfo(
+                from: allLabelsArray,
+                objects: Array(objects),
+                brands: brands,
+                faces: Array(faces)
+            )
+            
+            print("🔍 Product Info extracted - Gender: \(productInfo.gender ?? "nil"), Brand: \(productInfo.brand ?? "nil"), Product: \(productInfo.product ?? "nil")")
+            print("🔍 Labels available: \(allLabelsArray)")
+            print("🔍 Brands available: \(brands.map { $0.brandName })")
             
             let metadata = ImageMetadata(
                 imageId: UUID(),
@@ -91,7 +133,9 @@ class ImageAnalyzer {
                 objects: Array(objects),
                 scenes: Array(scenes),
                 faces: Array(faces),
-                searchableText: searchableText
+                brands: brands,
+                searchableText: searchableText,
+                productInfo: productInfo
             )
             
             completion(metadata)
@@ -167,5 +211,44 @@ class ImageAnalyzer {
         }
         
         return closestColor
+    }
+    
+    // MARK: - Image Optimization for API Efficiency
+    private func resizeImageForAnalysis(_ image: UIImage) -> UIImage {
+        let maxDimension: CGFloat = 1200  // Increased for better logo detection (was 800)
+        let originalSize = image.size
+        
+        print("🖼️ Original image size: \(originalSize)")
+        
+        // Calculate new size maintaining aspect ratio
+        let aspectRatio = originalSize.width / originalSize.height
+        var newSize: CGSize
+        
+        if originalSize.width > originalSize.height {
+            // Landscape
+            newSize = CGSize(width: maxDimension, height: maxDimension / aspectRatio)
+        } else {
+            // Portrait or square
+            newSize = CGSize(width: maxDimension * aspectRatio, height: maxDimension)
+        }
+        
+        print("📐 Calculated new size: \(newSize)")
+        
+        // Ensure we don't upscale small images
+        if originalSize.width <= maxDimension && originalSize.height <= maxDimension {
+            print("✅ Image already small enough, no resize needed")
+            return image
+        }
+        
+        // Create resized image with high quality
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        
+        let finalImage = resizedImage ?? image
+        print("✅ Final resized image size: \(finalImage.size)")
+        
+        return finalImage
     }
 } 

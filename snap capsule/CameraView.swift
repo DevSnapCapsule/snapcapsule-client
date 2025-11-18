@@ -373,9 +373,41 @@ struct CameraView: View {
                                     }) {
                                         Image(systemName: "arrow.left")
                                             .foregroundColor(.white)
-                                            .padding()
-                                            .background(Color.black.opacity(0.75))
-                                            .clipShape(Circle())
+                                            .font(.system(size: 20))
+                                            .padding(14)
+                                            .background(
+                                                ZStack {
+                                                    Circle()
+                                                        .fill(.ultraThinMaterial)
+                                                    
+                                                    Circle()
+                                                        .fill(
+                                                            LinearGradient(
+                                                                gradient: Gradient(colors: [
+                                                                    Color.white.opacity(0.3),
+                                                                    Color.white.opacity(0.1)
+                                                                ]),
+                                                                startPoint: .topLeading,
+                                                                endPoint: .bottomTrailing
+                                                            )
+                                                        )
+                                                }
+                                            )
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(
+                                                        LinearGradient(
+                                                            gradient: Gradient(colors: [
+                                                                Color.white.opacity(0.5),
+                                                                Color.white.opacity(0.2)
+                                                            ]),
+                                                            startPoint: .topLeading,
+                                                            endPoint: .bottomTrailing
+                                                        ),
+                                                        lineWidth: 1
+                                                    )
+                                            )
+                                            .shadow(color: Color.black.opacity(0.3), radius: 10, y: 5)
                                     }
                                     .padding(.top, 50)
                                     .padding(.leading)
@@ -385,18 +417,82 @@ struct CameraView: View {
                                     Button(action: camera.selectRandomImage) {
                                         Image(systemName: "arrow.triangle.2.circlepath")
                                             .foregroundColor(.white)
-                                            .padding()
-                                            .background(Color.black.opacity(0.75))
-                                            .clipShape(Circle())
+                                            .font(.system(size: 20))
+                                            .padding(14)
+                                            .background(
+                                                ZStack {
+                                                    Circle()
+                                                        .fill(.ultraThinMaterial)
+                                                    
+                                                    Circle()
+                                                        .fill(
+                                                            LinearGradient(
+                                                                gradient: Gradient(colors: [
+                                                                    Color.white.opacity(0.3),
+                                                                    Color.white.opacity(0.1)
+                                                                ]),
+                                                                startPoint: .topLeading,
+                                                                endPoint: .bottomTrailing
+                                                            )
+                                                        )
+                                                }
+                                            )
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(
+                                                        LinearGradient(
+                                                            gradient: Gradient(colors: [
+                                                                Color.white.opacity(0.5),
+                                                                Color.white.opacity(0.2)
+                                                            ]),
+                                                            startPoint: .topLeading,
+                                                            endPoint: .bottomTrailing
+                                                        ),
+                                                        lineWidth: 1
+                                                    )
+                                            )
+                                            .shadow(color: Color.black.opacity(0.3), radius: 10, y: 5)
                                     }
                                     .padding(.top, 50)
                                     
                                     Button(action: { presentationMode.wrappedValue.dismiss() }) {
                                         Image(systemName: "xmark")
                                             .foregroundColor(.white)
-                                            .padding()
-                                            .background(Color.black.opacity(0.75))
-                                            .clipShape(Circle())
+                                            .font(.system(size: 18))
+                                            .padding(14)
+                                            .background(
+                                                ZStack {
+                                                    Circle()
+                                                        .fill(.ultraThinMaterial)
+                                                    
+                                                    Circle()
+                                                        .fill(
+                                                            LinearGradient(
+                                                                gradient: Gradient(colors: [
+                                                                    Color.white.opacity(0.3),
+                                                                    Color.white.opacity(0.1)
+                                                                ]),
+                                                                startPoint: .topLeading,
+                                                                endPoint: .bottomTrailing
+                                                            )
+                                                        )
+                                                }
+                                            )
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(
+                                                        LinearGradient(
+                                                            gradient: Gradient(colors: [
+                                                                Color.white.opacity(0.5),
+                                                                Color.white.opacity(0.2)
+                                                            ]),
+                                                            startPoint: .topLeading,
+                                                            endPoint: .bottomTrailing
+                                                        ),
+                                                        lineWidth: 1
+                                                    )
+                                            )
+                                            .shadow(color: Color.black.opacity(0.3), radius: 10, y: 5)
                                     }
                                     .padding(.top, 50)
                                     .padding(.trailing)
@@ -415,9 +511,41 @@ struct CameraView: View {
                             Button(action: camera.selectRandomImage) {
                                 Image(systemName: "photo.stack")
                                     .foregroundColor(.white)
-                                    .padding()
-                                    .background(Color.black.opacity(0.75))
-                                    .clipShape(Circle())
+                                    .font(.system(size: 20))
+                                    .padding(14)
+                                    .background(
+                                        ZStack {
+                                            Circle()
+                                                .fill(.ultraThinMaterial)
+                                            
+                                            Circle()
+                                                .fill(
+                                                    LinearGradient(
+                                                        gradient: Gradient(colors: [
+                                                            Color.white.opacity(0.3),
+                                                            Color.white.opacity(0.1)
+                                                        ]),
+                                                        startPoint: .topLeading,
+                                                        endPoint: .bottomTrailing
+                                                    )
+                                                )
+                                        }
+                                    )
+                                    .overlay(
+                                        Circle()
+                                            .stroke(
+                                                LinearGradient(
+                                                    gradient: Gradient(colors: [
+                                                        Color.white.opacity(0.5),
+                                                        Color.white.opacity(0.2)
+                                                    ]),
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                ),
+                                                lineWidth: 1
+                                            )
+                                    )
+                                    .shadow(color: Color.black.opacity(0.3), radius: 10, y: 5)
                             }
                             .padding(.top, 50)
                             .padding(.leading)
@@ -427,9 +555,41 @@ struct CameraView: View {
                             Button(action: { presentationMode.wrappedValue.dismiss() }) {
                                 Image(systemName: "xmark")
                                     .foregroundColor(.white)
-                                    .padding()
-                                    .background(Color.black.opacity(0.75))
-                                    .clipShape(Circle())
+                                    .font(.system(size: 18))
+                                    .padding(14)
+                                    .background(
+                                        ZStack {
+                                            Circle()
+                                                .fill(.ultraThinMaterial)
+                                            
+                                            Circle()
+                                                .fill(
+                                                    LinearGradient(
+                                                        gradient: Gradient(colors: [
+                                                            Color.white.opacity(0.3),
+                                                            Color.white.opacity(0.1)
+                                                        ]),
+                                                        startPoint: .topLeading,
+                                                        endPoint: .bottomTrailing
+                                                    )
+                                                )
+                                        }
+                                    )
+                                    .overlay(
+                                        Circle()
+                                            .stroke(
+                                                LinearGradient(
+                                                    gradient: Gradient(colors: [
+                                                        Color.white.opacity(0.5),
+                                                        Color.white.opacity(0.2)
+                                                    ]),
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                ),
+                                                lineWidth: 1
+                                            )
+                                    )
+                                    .shadow(color: Color.black.opacity(0.3), radius: 10, y: 5)
                             }
                             .padding(.top, 50)
                             .padding(.trailing)
@@ -442,9 +602,41 @@ struct CameraView: View {
                                 Button(action: camera.retake) {
                                     Image(systemName: "arrow.triangle.2.circlepath.camera")
                                         .foregroundColor(.white)
-                                        .padding()
-                                        .background(Color.black.opacity(0.75))
-                                        .clipShape(Circle())
+                                        .font(.system(size: 24))
+                                        .padding(16)
+                                        .background(
+                                            ZStack {
+                                                Circle()
+                                                    .fill(.ultraThinMaterial)
+                                                
+                                                Circle()
+                                                    .fill(
+                                                        LinearGradient(
+                                                            gradient: Gradient(colors: [
+                                                                Color.white.opacity(0.3),
+                                                                Color.white.opacity(0.1)
+                                                            ]),
+                                                            startPoint: .topLeading,
+                                                            endPoint: .bottomTrailing
+                                                        )
+                                                    )
+                                            }
+                                        )
+                                        .overlay(
+                                            Circle()
+                                                .stroke(
+                                                    LinearGradient(
+                                                        gradient: Gradient(colors: [
+                                                            Color.white.opacity(0.5),
+                                                            Color.white.opacity(0.2)
+                                                        ]),
+                                                        startPoint: .topLeading,
+                                                        endPoint: .bottomTrailing
+                                                    ),
+                                                    lineWidth: 1
+                                                )
+                                        )
+                                        .shadow(color: Color.black.opacity(0.3), radius: 10, y: 5)
                                 }
                                 .padding(.horizontal)
                                 
@@ -454,22 +646,91 @@ struct CameraView: View {
                                 }) {
                                     Image(systemName: "checkmark")
                                         .foregroundColor(.white)
-                                        .padding()
-                                        .background(Color.black.opacity(0.75))
-                                        .clipShape(Circle())
+                                        .font(.system(size: 24))
+                                        .padding(16)
+                                        .background(
+                                            ZStack {
+                                                Circle()
+                                                    .fill(
+                                                        LinearGradient(
+                                                            gradient: Gradient(colors: [
+                                                                Color.green,
+                                                                Color.green.opacity(0.8)
+                                                            ]),
+                                                            startPoint: .topLeading,
+                                                            endPoint: .bottomTrailing
+                                                        )
+                                                    )
+                                                
+                                                Circle()
+                                                    .fill(
+                                                        LinearGradient(
+                                                            gradient: Gradient(colors: [
+                                                                Color.white.opacity(0.3),
+                                                                Color.white.opacity(0.0)
+                                                            ]),
+                                                            startPoint: .top,
+                                                            endPoint: .bottom
+                                                        )
+                                                    )
+                                            }
+                                        )
+                                        .overlay(
+                                            Circle()
+                                                .stroke(
+                                                    LinearGradient(
+                                                        gradient: Gradient(colors: [
+                                                            Color.white.opacity(0.5),
+                                                            Color.white.opacity(0.2)
+                                                        ]),
+                                                        startPoint: .topLeading,
+                                                        endPoint: .bottomTrailing
+                                                    ),
+                                                    lineWidth: 1
+                                                )
+                                        )
+                                        .shadow(color: Color.green.opacity(0.4), radius: 12, y: 6)
                                 }
                                 .padding(.horizontal)
                             } else {
                                 Button(action: camera.takePicture) {
-                                    Image(systemName: "camera")
-                                        .foregroundColor(.white)
-                                        .padding(30)
-                                        .background(Color.black.opacity(0.75))
-                                        .clipShape(Circle())
+                                    ZStack {
+                                        Circle()
+                                            .fill(
+                                                LinearGradient(
+                                                    gradient: Gradient(colors: [
+                                                        Color.white,
+                                                        Color.white.opacity(0.9)
+                                                    ]),
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            )
+                                            .frame(width: 70, height: 70)
+                                        
+                                        Circle()
+                                            .stroke(
+                                                LinearGradient(
+                                                    gradient: Gradient(colors: [
+                                                        Color.white.opacity(0.8),
+                                                        Color.white.opacity(0.4)
+                                                    ]),
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                ),
+                                                lineWidth: 4
+                                            )
+                                            .frame(width: 76, height: 76)
+                                        
+                                        Image(systemName: "camera.fill")
+                                            .foregroundColor(.black)
+                                            .font(.system(size: 28))
+                                    }
+                                    .shadow(color: Color.black.opacity(0.4), radius: 20, y: 10)
                                 }
                             }
                         }
-                        .padding(.bottom, 30)
+                        .padding(.bottom, 40)
                     }
                 }
             } else {

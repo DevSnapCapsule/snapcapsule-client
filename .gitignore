@@ -94,6 +94,17 @@ iOSInjectionProject/
 .AppleDouble
 .LSOverride
 
+# Secrets and API Keys (NEVER commit these)
+.env
+.env.local
+.env.*.local
+**/Secrets.plist
+**/*Secrets.plist
+**/Config.plist
+**/*Config.plist
+*.secrets
+*.keys
+
 # Icon must end with two \r
 Icon
 
