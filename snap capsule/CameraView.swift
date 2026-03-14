@@ -1,6 +1,5 @@
 import SwiftUI
 import AVFoundation
-import CoreLocation
 
 class CameraViewModel: NSObject, ObservableObject {
     #if targetEnvironment(simulator)
@@ -17,10 +16,9 @@ class CameraViewModel: NSObject, ObservableObject {
     @Published var capturedImage: UIImage?
     @Published var permissionGranted = false
     @Published var isSessionReady = false
+    @Published var cameraPosition: AVCaptureDevice.Position = .back
     private var isConfiguring = false
-    
-    private let locationManager = CLLocationManager()
-    @Published var currentLocation: CLLocation?
+    private var currentInput: AVCaptureDeviceInput?
     
     // Placeholder images for simulator
     private let placeholderImages = [
@@ -35,7 +33,6 @@ class CameraViewModel: NSObject, ObservableObject {
     }
     
     @Published var imageMetadata: [String: Any] = [:]
-    @Published var isShowingRandomImage = false
     
     override init() {
         super.init()
@@ -45,10 +42,7 @@ class CameraViewModel: NSObject, ObservableObject {
             // In simulator, grant permission by default and setup mock data
             permissionGranted = true
             isSessionReady = true
-            // Set a mock location for simulator testing
-            currentLocation = CLLocation(latitude: 37.7749, longitude: -122.4194) // Example: San Francisco
         }
-        setupLocation()
     }
     
     func checkPermissions() {
@@ -83,30 +77,118 @@ class CameraViewModel: NSObject, ObservableObject {
     }
     
     func setupCamera() {
+        // Ensure session is stopped before configuration
+        if session.isRunning {
+            session.stopRunning()
+        }
+        
+        // Small delay to ensure previous camera is fully released
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.performCameraSetup()
+        }
+    }
+    
+    private func performCameraSetup() {
         do {
             session.beginConfiguration()
+            isConfiguring = true
             
-            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera,
-                                                      for: .video,
-                                                      position: .back) else {
-                print("Failed to get camera device")
+            // Remove existing input if any
+            if let existingInput = currentInput {
+                session.removeInput(existingInput)
+                currentInput = nil
+            }
+            
+            // Try to get the camera device with retry and discovery logic
+            var device: AVCaptureDevice?
+            let cameraName = cameraPosition == .back ? "BACK" : "FRONT"
+            
+            // First attempt: simple default wide-angle camera
+            device = AVCaptureDevice.default(.builtInWideAngleCamera,
+                                            for: .video,
+                                            position: cameraPosition)
+            
+            // If first attempt fails, wait a bit and try again
+            if device == nil {
+                Thread.sleep(forTimeInterval: 0.05)
+                device = AVCaptureDevice.default(.builtInWideAngleCamera,
+                                                for: .video,
+                                                position: cameraPosition)
+            }
+            
+            // If still nil, use a discovery session to find any suitable camera
+            if device == nil {
+                let discoverySession = AVCaptureDevice.DiscoverySession(
+                    deviceTypes: [
+                        .builtInWideAngleCamera,
+                        .builtInDualCamera,
+                        .builtInTripleCamera,
+                        .builtInDualWideCamera,
+                        .builtInTrueDepthCamera
+                    ],
+                    mediaType: .video,
+                    position: cameraPosition
+                )
+                device = discoverySession.devices.first
+            }
+            
+            guard let captureDevice = device else {
+                print("⚠️ Failed to get \(cameraName) camera device after discovery - check hardware configuration")
+                session.commitConfiguration()
+                isConfiguring = false
                 return
             }
             
-            let input = try AVCaptureDeviceInput(device: device)
+            let input = try AVCaptureDeviceInput(device: captureDevice)
             
             if session.canAddInput(input) {
                 session.addInput(input)
+                currentInput = input
             }
             
-            if session.canAddOutput(output) {
-                session.addOutput(output)
+            if !session.outputs.contains(output) {
+                if session.canAddOutput(output) {
+                    session.addOutput(output)
+                }
             }
             
             session.commitConfiguration()
+            isConfiguring = false
             isSessionReady = true
+            
+            // Ensure the capture session actually starts once configuration succeeds.
+            // This prevents an initial black preview screen where the session was
+            // configured but never started until the user toggled the camera.
+            startSession()
+            print("✅ \(cameraName) camera setup successful")
         } catch {
-            print("Camera setup error: \(error.localizedDescription)")
+            print("❌ Camera setup error: \(error.localizedDescription)")
+            session.commitConfiguration()
+            isConfiguring = false
+        }
+    }
+    
+    func switchCamera() {
+        guard !isConfiguring && !isTaken else { return }
+        
+        // Stop session synchronously before switching
+        if session.isRunning {
+            session.stopRunning()
+        }
+        
+        // Toggle camera position
+        cameraPosition = cameraPosition == .back ? .front : .back
+        
+        // Log which camera is now active
+        let cameraName = cameraPosition == .back ? "BACK" : "FRONT"
+        print("📸 Switching to \(cameraName) camera...")
+        
+        // Reconfigure camera with new position
+        setupCamera()
+        
+        // Restart session after a longer delay to ensure configuration is complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            self.startSession()
         }
     }
     
@@ -126,13 +208,6 @@ class CameraViewModel: NSObject, ObservableObject {
         }
     }
     
-    func setupLocation() {
-        locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyBest
-        locationManager.requestWhenInUseAuthorization()
-        locationManager.startUpdatingLocation()
-    }
-    
     func takePicture() {
         if isSimulator {
             // In simulator, use either a placeholder image from assets or generate one
@@ -147,10 +222,9 @@ class CameraViewModel: NSObject, ObservableObject {
                         UIColor.black.setFill()
                         context.fill(CGRect(x: 0, y: 0, width: 800, height: 600))
                         
-                        // Add timestamp and location
+                        // Add timestamp (no location)
                         let timestamp = Date().formatted(date: .complete, time: .complete)
-                        let location = "📍 \(self.currentLocation?.coordinate.latitude ?? 0), \(self.currentLocation?.coordinate.longitude ?? 0)"
-                        let text = "Test Photo\n\(timestamp)\n\(location)"
+                        let text = "Test Photo\n\(timestamp)"
                         
                         let attributes: [NSAttributedString.Key: Any] = [
                             .foregroundColor: UIColor.white,
@@ -207,116 +281,48 @@ class CameraViewModel: NSObject, ObservableObject {
             stopSession()
         }
         
-        // Save to photo library
-        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+        // Get current user and albums
+        guard let user = UserManager.shared.getCurrentUser() else {
+            print("❌ No user logged in")
+            return
+        }
         
-        // Create metadata with current timestamp and location
-        let timestamp = Date()
-        let location = currentLocation ?? CLLocation(latitude: 0, longitude: 0)
+        let albums = AlbumManager.shared.getAlbums(for: user)
+        guard !albums.isEmpty else {
+            print("❌ No albums available")
+            return
+        }
         
-        // Process image metadata and AI analysis
-        ImageAnalyzer.shared.analyzeImage(image, location: location) { [weak self] metadata in
-            guard let self = self else { return }
-            
-            // Save metadata to CoreData
-            DispatchQueue.main.async {
-                MetadataManager.shared.saveImageMetadata(metadata)
-                print("✅ Saved image metadata: \(metadata.imageId)")
-                print("📍 Location: \(metadata.location?.coordinate.latitude ?? 0), \(metadata.location?.coordinate.longitude ?? 0)")
-                print("🏷️ Labels: \(metadata.labels)")
-                print("🎨 Colors: \(metadata.colors)")
-                print("📦 Objects: \(metadata.objects)")
-                print("🖼️ Scenes: \(metadata.scenes)")
+        // Determine which album to use:
+        // 1. Fill Capsule 1 until it reaches its limit.
+        // 2. Then start filling Capsule 2.
+        let album1 = albums.first { $0.name == "Capsule 1" }
+        let album2 = albums.first { $0.name == "Capsule 2" }
+        
+        var targetAlbum: AlbumEntity?
+        
+        if let album1 = album1, AlbumManager.shared.canAddImage(to: album1) {
+            targetAlbum = album1
+        } else if let album2 = album2, AlbumManager.shared.canAddImage(to: album2) {
+            targetAlbum = album2
+        } else {
+            print("⚠️ All capsules have reached their maximum image limit.")
+            return
+        }
+        
+        guard let album = targetAlbum else {
+            print("❌ Could not determine target album")
+            return
+        }
+        
+        // Save image to album (no location)
+        AlbumManager.shared.addImage(to: album, image: image) { success, error in
+            if success {
+                print("✅ Image saved to album: \(album.name ?? "Unknown")")
+            } else {
+                print("❌ Failed to save image: \(error ?? "Unknown error")")
             }
         }
-    }
-    
-    func selectRandomImage() {
-        let fileManager = FileManager.default
-        let imagesPath = "/Users/administrator/Documents/snap capsule/images"
-        
-        do {
-            let imageFiles = try fileManager.contentsOfDirectory(atPath: imagesPath)
-                .filter { $0.lowercased().hasSuffix(".jpg") || $0.lowercased().hasSuffix(".jpeg") }
-            
-            guard let randomImage = imageFiles.randomElement() else {
-                print("No images found in the directory")
-                return
-            }
-            
-            print("Selected image: \(randomImage)")
-            
-            let imagePath = (imagesPath as NSString).appendingPathComponent(randomImage)
-            guard let image = UIImage(contentsOfFile: imagePath) else {
-                print("Failed to load image")
-                return
-            }
-            
-            // Extract metadata using ImageIO
-            guard let imageSource = CGImageSourceCreateWithURL(URL(fileURLWithPath: imagePath) as CFURL, nil) else {
-                print("Failed to create image source")
-                return
-            }
-            
-            let options = [kCGImageSourceShouldCache: false] as CFDictionary
-            guard let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, options) as? [String: Any] else {
-                print("Failed to extract metadata")
-                return
-            }
-            
-            var metadata: [String: Any] = [:]
-            
-            // Extract EXIF data
-            if let exif = properties[kCGImagePropertyExifDictionary as String] as? [String: Any] {
-                metadata["{Exif}"] = exif
-            }
-            
-            // Extract GPS data
-            if let gps = properties[kCGImagePropertyGPSDictionary as String] as? [String: Any] {
-                metadata["{GPS}"] = gps
-            }
-            
-            // Extract TIFF data
-            if let tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any] {
-                metadata["{TIFF}"] = tiff
-            }
-            
-            // Add basic image properties
-            if let width = properties[kCGImagePropertyPixelWidth as String] as? Int {
-                metadata["PixelWidth"] = width
-            }
-            if let height = properties[kCGImagePropertyPixelHeight as String] as? Int {
-                metadata["PixelHeight"] = height
-            }
-            if let orientation = properties[kCGImagePropertyOrientation as String] as? Int {
-                metadata["Orientation"] = orientation
-            }
-            if let colorModel = properties[kCGImagePropertyColorModel as String] as? String {
-                metadata["ColorModel"] = colorModel
-            }
-            if let profileName = properties[kCGImagePropertyProfileName as String] as? String {
-                metadata["ColorProfile"] = profileName
-            }
-            
-            DispatchQueue.main.async {
-                self.capturedImage = image
-                self.imageMetadata = metadata
-                self.isTaken = true
-                self.isShowingRandomImage = true
-                self.stopSession()
-            }
-            
-        } catch {
-            print("Error accessing images directory: \(error)")
-            print("Attempted path: \(imagesPath)")
-        }
-    }
-}
-
-extension CameraViewModel: CLLocationManagerDelegate {
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
-        currentLocation = location
     }
 }
 
@@ -337,223 +343,25 @@ struct CameraView: View {
     @StateObject var camera = CameraViewModel()
     @Environment(\.presentationMode) var presentationMode
     
+    /// Optional callback invoked after a photo is successfully saved,
+    /// allowing the presenting view to update its state (e.g. switch tabs).
+    var onCaptureCompleted: (() -> Void)? = nil
+    
     var body: some View {
         ZStack {
             Color.black.edgesIgnoringSafeArea(.all)
             
             if camera.permissionGranted {
-                if camera.isShowingRandomImage {
-                    // Show selected image with metadata
-                    if let image = camera.capturedImage {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 16) {
-                                Image(uiImage: image)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.bottom)
-                                
-                                ImageMetadataContent(image: image, metadata: camera.imageMetadata)
-                                    .padding(.horizontal)
-                                    .padding(.vertical)
-                                    .background(Color(red: 0.95, green: 0.93, blue: 0.90)) // Biscuit color
-                                    .cornerRadius(12)
-                                    .padding(.horizontal)
-                            }
-                        }
-                        .background(Color.black)
-                        .edgesIgnoringSafeArea(.all)
-                        .overlay(
-                            VStack {
-                                HStack {
-                                    Button(action: {
-                                        camera.isShowingRandomImage = false
-                                        camera.isTaken = false
-                                        camera.startSession()
-                                    }) {
-                                        Image(systemName: "arrow.left")
-                                            .foregroundColor(.white)
-                                            .font(.system(size: 20))
-                                            .padding(14)
-                                            .background(
-                                                ZStack {
-                                                    Circle()
-                                                        .fill(.ultraThinMaterial)
-                                                    
-                                                    Circle()
-                                                        .fill(
-                                                            LinearGradient(
-                                                                gradient: Gradient(colors: [
-                                                                    Color.white.opacity(0.3),
-                                                                    Color.white.opacity(0.1)
-                                                                ]),
-                                                                startPoint: .topLeading,
-                                                                endPoint: .bottomTrailing
-                                                            )
-                                                        )
-                                                }
-                                            )
-                                            .overlay(
-                                                Circle()
-                                                    .stroke(
-                                                        LinearGradient(
-                                                            gradient: Gradient(colors: [
-                                                                Color.white.opacity(0.5),
-                                                                Color.white.opacity(0.2)
-                                                            ]),
-                                                            startPoint: .topLeading,
-                                                            endPoint: .bottomTrailing
-                                                        ),
-                                                        lineWidth: 1
-                                                    )
-                                            )
-                                            .shadow(color: Color.black.opacity(0.3), radius: 10, y: 5)
-                                    }
-                                    .padding(.top, 50)
-                                    .padding(.leading)
-                                    
-                                    Spacer()
-                                    
-                                    Button(action: camera.selectRandomImage) {
-                                        Image(systemName: "arrow.triangle.2.circlepath")
-                                            .foregroundColor(.white)
-                                            .font(.system(size: 20))
-                                            .padding(14)
-                                            .background(
-                                                ZStack {
-                                                    Circle()
-                                                        .fill(.ultraThinMaterial)
-                                                    
-                                                    Circle()
-                                                        .fill(
-                                                            LinearGradient(
-                                                                gradient: Gradient(colors: [
-                                                                    Color.white.opacity(0.3),
-                                                                    Color.white.opacity(0.1)
-                                                                ]),
-                                                                startPoint: .topLeading,
-                                                                endPoint: .bottomTrailing
-                                                            )
-                                                        )
-                                                }
-                                            )
-                                            .overlay(
-                                                Circle()
-                                                    .stroke(
-                                                        LinearGradient(
-                                                            gradient: Gradient(colors: [
-                                                                Color.white.opacity(0.5),
-                                                                Color.white.opacity(0.2)
-                                                            ]),
-                                                            startPoint: .topLeading,
-                                                            endPoint: .bottomTrailing
-                                                        ),
-                                                        lineWidth: 1
-                                                    )
-                                            )
-                                            .shadow(color: Color.black.opacity(0.3), radius: 10, y: 5)
-                                    }
-                                    .padding(.top, 50)
-                                    
-                                    Button(action: { presentationMode.wrappedValue.dismiss() }) {
-                                        Image(systemName: "xmark")
-                                            .foregroundColor(.white)
-                                            .font(.system(size: 18))
-                                            .padding(14)
-                                            .background(
-                                                ZStack {
-                                                    Circle()
-                                                        .fill(.ultraThinMaterial)
-                                                    
-                                                    Circle()
-                                                        .fill(
-                                                            LinearGradient(
-                                                                gradient: Gradient(colors: [
-                                                                    Color.white.opacity(0.3),
-                                                                    Color.white.opacity(0.1)
-                                                                ]),
-                                                                startPoint: .topLeading,
-                                                                endPoint: .bottomTrailing
-                                                            )
-                                                        )
-                                                }
-                                            )
-                                            .overlay(
-                                                Circle()
-                                                    .stroke(
-                                                        LinearGradient(
-                                                            gradient: Gradient(colors: [
-                                                                Color.white.opacity(0.5),
-                                                                Color.white.opacity(0.2)
-                                                            ]),
-                                                            startPoint: .topLeading,
-                                                            endPoint: .bottomTrailing
-                                                        ),
-                                                        lineWidth: 1
-                                                    )
-                                            )
-                                            .shadow(color: Color.black.opacity(0.3), radius: 10, y: 5)
-                                    }
-                                    .padding(.top, 50)
-                                    .padding(.trailing)
-                                }
-                                Spacer()
-                            }
-                        )
-                    }
-                } else {
-                    // Show camera preview
-                    CameraPreview(camera: camera)
-                        .edgesIgnoringSafeArea(.all)
-                    
-                    VStack {
-                        HStack {
-                            Button(action: camera.selectRandomImage) {
-                                Image(systemName: "photo.stack")
-                                    .foregroundColor(.white)
-                                    .font(.system(size: 20))
-                                    .padding(14)
-                                    .background(
-                                        ZStack {
-                                            Circle()
-                                                .fill(.ultraThinMaterial)
-                                            
-                                            Circle()
-                                                .fill(
-                                                    LinearGradient(
-                                                        gradient: Gradient(colors: [
-                                                            Color.white.opacity(0.3),
-                                                            Color.white.opacity(0.1)
-                                                        ]),
-                                                        startPoint: .topLeading,
-                                                        endPoint: .bottomTrailing
-                                                    )
-                                                )
-                                        }
-                                    )
-                                    .overlay(
-                                        Circle()
-                                            .stroke(
-                                                LinearGradient(
-                                                    gradient: Gradient(colors: [
-                                                        Color.white.opacity(0.5),
-                                                        Color.white.opacity(0.2)
-                                                    ]),
-                                                    startPoint: .topLeading,
-                                                    endPoint: .bottomTrailing
-                                                ),
-                                                lineWidth: 1
-                                            )
-                                    )
-                                    .shadow(color: Color.black.opacity(0.3), radius: 10, y: 5)
-                            }
-                            .padding(.top, 50)
-                            .padding(.leading)
-                            
-                            Spacer()
-                            
-                            Button(action: { presentationMode.wrappedValue.dismiss() }) {
-                                Image(systemName: "xmark")
+                // Show camera preview
+                CameraPreview(camera: camera)
+                    .edgesIgnoringSafeArea(.all)
+                
+                VStack {
+                    HStack {
+                        // Camera switch button (only show when not taken)
+                        if !camera.isTaken {
+                            Button(action: camera.switchCamera) {
+                                Image(systemName: "camera.rotate")
                                     .foregroundColor(.white)
                                     .font(.system(size: 18))
                                     .padding(14)
@@ -592,15 +400,62 @@ struct CameraView: View {
                                     .shadow(color: Color.black.opacity(0.3), radius: 10, y: 5)
                             }
                             .padding(.top, 50)
-                            .padding(.trailing)
+                            .padding(.leading)
+                        } else {
+                            Spacer()
                         }
                         
                         Spacer()
                         
-                        HStack {
-                            if camera.isTaken {
+                        Button(action: { presentationMode.wrappedValue.dismiss() }) {
+                            Image(systemName: "xmark")
+                                .foregroundColor(.white)
+                                .font(.system(size: 18))
+                                .padding(14)
+                                .background(
+                                    ZStack {
+                                        Circle()
+                                            .fill(.ultraThinMaterial)
+                                        
+                                        Circle()
+                                            .fill(
+                                                LinearGradient(
+                                                    gradient: Gradient(colors: [
+                                                        Color.white.opacity(0.3),
+                                                        Color.white.opacity(0.1)
+                                                    ]),
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            )
+                                    }
+                                )
+                                .overlay(
+                                    Circle()
+                                        .stroke(
+                                            LinearGradient(
+                                                gradient: Gradient(colors: [
+                                                    Color.white.opacity(0.5),
+                                                    Color.white.opacity(0.2)
+                                                ]),
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            ),
+                                            lineWidth: 1
+                                        )
+                                )
+                                .shadow(color: Color.black.opacity(0.3), radius: 10, y: 5)
+                        }
+                        .padding(.top, 50)
+                        .padding(.trailing)
+                    }
+                    
+                    Spacer()
+                    
+                    HStack {
+                        if camera.isTaken {
                                 Button(action: camera.retake) {
-                                    Image(systemName: "arrow.triangle.2.circlepath.camera")
+                                    Image(systemName: "arrow.counterclockwise")
                                         .foregroundColor(.white)
                                         .font(.system(size: 24))
                                         .padding(16)
@@ -642,6 +497,7 @@ struct CameraView: View {
                                 
                                 Button(action: {
                                     camera.savePicture()
+                                    onCaptureCompleted?()
                                     presentationMode.wrappedValue.dismiss()
                                 }) {
                                     Image(systemName: "checkmark")
@@ -728,10 +584,9 @@ struct CameraView: View {
                                     }
                                     .shadow(color: Color.black.opacity(0.4), radius: 20, y: 10)
                                 }
-                            }
                         }
-                        .padding(.bottom, 40)
                     }
+                    .padding(.bottom, 40)
                 }
             } else {
                 VStack {

@@ -6,26 +6,27 @@
 //
 
 import SwiftUI
-import CoreLocation
-import Photos
-
+ 
 struct ContentView: View {
+    @EnvironmentObject var networkMonitor: NetworkMonitor
     @State private var isShowingCamera = false
     @State private var searchText = ""
     @State private var searchResults: [ImageSearchResult] = []
     @State private var selectedTab = 1
+    @State private var showNetworkAlert = false
+    @State private var networkAlertMessage: String = "SnapCapsule needs an internet connection to analyze photos. Please check your connection and try again."
     
     var body: some View {
         NavigationView {
             ZStack {
-                // Liquid glass background gradient
+                // Match overall background to the footer/menu background
                 LinearGradient(
                     gradient: Gradient(colors: [
-                        Color(red: 0.95, green: 0.97, blue: 1.0),
-                        Color(red: 0.98, green: 0.99, blue: 1.0)
+                        Color.black.opacity(0.80),
+                        Color.black.opacity(0.90)
                     ]),
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
                 .ignoresSafeArea()
                 
@@ -37,7 +38,8 @@ struct ContentView: View {
                             // Home/Search view
                             VStack(spacing: 0) {
                                 SearchBar(text: $searchText, onSearch: performSearch)
-                                    .padding()
+                                    .padding(.horizontal)
+                                    .padding(.top)
                                 
                                 ScrollView {
                                     if searchResults.isEmpty {
@@ -52,10 +54,7 @@ struct ContentView: View {
                             // Capsule Repository
                             CapsuleRepositoryView()
                         case 2:
-                            // Connect
-                            ConnectView()
-                        case 3:
-                            // Settings
+                            // About
                             SettingsView()
                         default:
                             EmptyView()
@@ -63,7 +62,7 @@ struct ContentView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     
-                    // Footer Menu with liquid glass
+                    // Footer Menu with higher contrast
                     VStack(spacing: 0) {
                         HStack(spacing: 0) {
                             FooterMenuItem(icon: "camera.fill", title: "Snap Lens", isSelected: selectedTab == 0) {
@@ -74,49 +73,54 @@ struct ContentView: View {
                                 selectedTab = 1
                             }
                             
-                            FooterMenuItem(icon: "link.circle.fill", title: "Connect", isSelected: selectedTab == 2) {
+                            FooterMenuItem(icon: "info.circle.fill", title: "About", isSelected: selectedTab == 2) {
                                 selectedTab = 2
-                            }
-                            
-                            FooterMenuItem(icon: "gearshape.fill", title: "Settings", isSelected: selectedTab == 3) {
-                                selectedTab = 3
                             }
                         }
                         .padding(.vertical, 12)
                         .padding(.horizontal, 8)
                         .background(
                             ZStack {
-                                // Glass morphism effect
+                                // Dark glass morphism effect for strong contrast
                                 RoundedRectangle(cornerRadius: 0)
-                                    .fill(.ultraThinMaterial)
+                                    .fill(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [
+                                                Color.black.opacity(0.65),
+                                                Color.black.opacity(0.75)
+                                            ]),
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
+                                    )
                                 
-                                // Subtle gradient overlay
+                                // Subtle blue highlight
                                 LinearGradient(
                                     gradient: Gradient(colors: [
-                                        Color.white.opacity(0.3),
-                                        Color.white.opacity(0.1)
+                                        Color.blue.opacity(0.20),
+                                        Color.purple.opacity(0.15)
                                     ]),
-                                    startPoint: .top,
-                                    endPoint: .bottom
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
                                 )
                             }
                         )
                         .overlay(
-                            // Top border with glass effect
+                            // Top border glow
                             VStack {
                                 Rectangle()
                                     .fill(
                                         LinearGradient(
                                             gradient: Gradient(colors: [
-                                                Color.white.opacity(0.6),
-                                                Color.white.opacity(0.1)
+                                                Color.white.opacity(0.25),
+                                                Color.white.opacity(0.05)
                                             ]),
                                             startPoint: .leading,
                                             endPoint: .trailing
                                         )
                                     )
                                     .frame(height: 1)
-                                    .blur(radius: 0.5)
+                                    .blur(radius: 1.0)
                                 Spacer()
                             }
                         )
@@ -124,19 +128,39 @@ struct ContentView: View {
                 }
             }
             .navigationBarTitle(navigationTitle, displayMode: .inline)
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(Color.black.opacity(0.6), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .alert("No Internet Connection",
+                   isPresented: $showNetworkAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(networkAlertMessage)
+            }
         }
         .fullScreenCover(isPresented: $isShowingCamera) {
-            CameraView()
+            CameraView(onCaptureCompleted: {
+                // After taking a photo, always land on Capsule Repository.
+                selectedTab = 1
+            })
+        }
+        .onAppear {
+            if !networkMonitor.isConnected {
+                showNetworkAlert = true
+            }
+        }
+        .onChange(of: networkMonitor.isConnected) { isConnected in
+            if !isConnected {
+                showNetworkAlert = true
+            }
         }
     }
     
     private var navigationTitle: String {
         switch selectedTab {
-        case 0: return "SnapCapsule"
+        case 0: return "Snap Capsule"
         case 1: return "Capsule Repository"
-        case 2: return "Connect"
-        case 3: return "Settings"
+        case 2: return "About"
         default: return ""
         }
     }
@@ -154,12 +178,14 @@ struct SearchBar: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
-                .foregroundColor(.secondary)
+                .foregroundColor(Color.gray)
                 .font(.system(size: 18))
             
             TextField("AI Search..", text: $text)
                 .focused($isFocused)
                 .autocapitalization(.none)
+                .foregroundColor(.black)
+                .tint(.black)
                 .onSubmit(onSearch)
             
             if !text.isEmpty {
@@ -168,7 +194,7 @@ struct SearchBar: View {
                     isFocused = false
                 }) {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Color.white.opacity(0.75))
                         .font(.system(size: 18))
                 }
             }
@@ -176,38 +202,27 @@ struct SearchBar: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(.ultraThinMaterial)
-                
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(
-                        LinearGradient(
-                            gradient: Gradient(colors: [
-                                Color.white.opacity(isFocused ? 0.4 : 0.2),
-                                Color.white.opacity(isFocused ? 0.3 : 0.1)
-                            ]),
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
+            // Inner glowing search pill
+            RoundedRectangle(cornerRadius: 16)
+                .fill(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.blue.opacity(isFocused ? 0.55 : 0.40),
+                            Color.purple.opacity(isFocused ? 0.55 : 0.40)
+                        ]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
                     )
-            }
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16)
                 .stroke(
-                    LinearGradient(
-                        gradient: Gradient(colors: [
-                            Color.white.opacity(0.6),
-                            Color.white.opacity(0.2)
-                        ]),
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: isFocused ? 1.5 : 1
+                    Color(.darkGray).opacity(isFocused ? 0.9 : 0.8),
+                    lineWidth: isFocused ? 2 : 1.5
                 )
         )
-        .shadow(color: Color.black.opacity(0.05), radius: isFocused ? 12 : 8, y: isFocused ? 6 : 4)
+        .shadow(color: Color.black.opacity(0.5), radius: isFocused ? 14 : 10, y: isFocused ? 7 : 5)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isFocused)
     }
 }
@@ -225,15 +240,6 @@ struct SearchResultsList: View {
                     Text(result.timestamp, style: .date)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                    if let address = getAddressFromLocation(result.location) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "location.fill")
-                                .font(.caption2)
-                            Text(address)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -274,12 +280,6 @@ struct SearchResultsList: View {
             }
         }
         .padding(.vertical)
-    }
-    
-    private func getAddressFromLocation(_ location: CLLocation) -> String? {
-        // In a real app, you would use CLGeocoder to get the address
-        // For now, we'll just return the coordinates
-        return "\(location.coordinate.latitude), \(location.coordinate.longitude)"
     }
 }
 
@@ -325,7 +325,8 @@ struct EmptyStateView: View {
     }
 }
 
-struct CapsuleRepositoryView: View {
+// Old CapsuleRepositoryView removed - using new implementation from CapsuleRepositoryView.swift
+struct OldCapsuleRepositoryView: View {
     @State private var images: [ImageItem] = []
     @State private var indexedImages: [ImageItem] = []
     @State private var isLoading = true
@@ -445,7 +446,7 @@ struct CapsuleRepositoryView: View {
         isIndexing = true
         
         // Perform actual image analysis with Google Vision API
-        ImageAnalyzer.shared.analyzeImage(selectedItem.image, location: nil) { metadata in
+        ImageAnalyzer.shared.analyzeImage(selectedItem.image) { metadata in
             DispatchQueue.main.async {
                 
                 // Update the selected image to be indexed
@@ -495,68 +496,11 @@ struct CapsuleRepositoryView: View {
     }
     
     private func loadImages() {
-        isLoading = true
-        
-        // Get the workspace directory path
-        let workspacePath = "/Users/administrator/Documents/snap capsule/images"
-        
-        let fileManager = FileManager.default
-        
-        do {
-            // List all files in directory
-            let files = try fileManager.contentsOfDirectory(atPath: workspacePath)
-            
-            // Filter for image files
-            let imageFiles = files.filter { file in
-                let fileExtension = (file as NSString).pathExtension.lowercased()
-                return ["jpg", "jpeg", "png", "heic"].contains(fileExtension)
-            }.filter { !$0.hasPrefix(".") }
-            
-            
-            // Process each image file
-            var newImages: [ImageItem] = []
-            
-            for file in imageFiles {
-                let fullPath = (workspacePath as NSString).appendingPathComponent(file)
-                if let image = UIImage(contentsOfFile: fullPath) {
-                    
-                    // Get file attributes for metadata
-                    let attributes = try fileManager.attributesOfItem(atPath: fullPath)
-                    let creationDate = attributes[.creationDate] as? Date ?? Date()
-                    
-                    // Create metadata
-                    let metadata: [String: Any] = [
-                        "fileName": (file as NSString).lastPathComponent,
-                        "date": creationDate,
-                        "fileSize": attributes[.size] as? Int64 ?? 0
-                    ]
-                    
-                    let imageItem = ImageItem(
-                        id: UUID(),
-                        image: image,
-                        metadata: metadata,
-                        timestamp: creationDate
-                    )
-                    newImages.append(imageItem)
-                }
-            }
-            
-            
-            // Update UI on main thread
-            DispatchQueue.main.async {
-                self.images = newImages.sorted(by: { $0.timestamp > $1.timestamp })
-                // Separate indexed images
-                self.indexedImages = newImages.filter { item in
-                    item.metadata["isIndexed"] as? Bool == true
-                }.sorted(by: { $0.timestamp > $1.timestamp })
-                self.isLoading = false
-            }
-            
-        } catch {
-            DispatchQueue.main.async {
-                self.isLoading = false
-            }
-        }
+        // This helper was previously used to import images from a
+        // local Mac workspace directory for development/testing.
+        // In production builds we keep all user photos inside the app’s
+        // own storage and do not load from arbitrary filesystem paths.
+        isLoading = false
     }
 }
 
@@ -779,7 +723,7 @@ struct IndexedPhotosView: View {
                     spacing: 3
                 ) {
                     ForEach(indexedImages) { item in
-                        NavigationLink(destination: ImageDetailView(image: item)) {
+                        NavigationLink(destination: OldImageDetailView(image: item)) {
                             IndexedImageGridItem(item: item)
                                 .aspectRatio(1, contentMode: .fill)
                         }
@@ -926,7 +870,7 @@ struct EmptyPhotoCollectionsState: View {
                     .fontWeight(.semibold)
                 Text("Add some photos to get started!")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                            .foregroundColor(.gray)
                     .multilineTextAlignment(.center)
             }
         }
@@ -970,7 +914,7 @@ struct EmptyIndexedPhotosState: View {
                     .fontWeight(.semibold)
                 Text("Index some photos to see them here!")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.gray)
                     .multilineTextAlignment(.center)
             }
         }
@@ -1097,11 +1041,13 @@ struct ImageItem: Identifiable, Equatable {
     }
 }
 
-struct ImageDetailView: View {
+struct OldImageDetailView: View {
     let image: ImageItem
     @State private var detectedBrands: [BrandDetectionResult] = []
     @State private var isLoadingBrands = false
     @State private var productInfo: ProductInfo?
+    @State private var showAnalysisAlert = false
+    @State private var analysisAlertMessage: String = ""
     
     var body: some View {
         ScrollView {
@@ -1128,6 +1074,11 @@ struct ImageDetailView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .alert("Analysis Unavailable", isPresented: $showAnalysisAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(analysisAlertMessage)
+        }
     }
     
     private func loadBrandInformation() {
@@ -1188,8 +1139,28 @@ struct ImageDetailView: View {
                     case .success(let brands):
                         detectedBrands = brands
                     case .failure(let error):
-                        // Handle error silently in production
                         detectedBrands = []
+                        
+                        // Map common errors to a user-friendly message
+                        if let urlError = error as? URLError, urlError.code == .notConnectedToInternet {
+                            analysisAlertMessage = "You appear to be offline. SnapCapsule needs an internet connection to detect brands with AI."
+                            showAnalysisAlert = true
+                        } else if let visionError = error as? VisionServiceError {
+                            switch visionError {
+                            case .invalidAPIKey:
+                                analysisAlertMessage = "Image analysis is not configured correctly (missing API key). Please contact support."
+                            case .invalidImage:
+                                analysisAlertMessage = "The selected image could not be processed. Please try a different photo."
+                            case .noData:
+                                analysisAlertMessage = "The AI service did not return any data. Please try again in a moment."
+                            case .apiError(let message):
+                                analysisAlertMessage = "The AI service reported an error: \(message)"
+                            }
+                            showAnalysisAlert = true
+                        } else {
+                            analysisAlertMessage = "Image analysis failed. Please check your connection and try again. (\(error.localizedDescription))"
+                            showAnalysisAlert = true
+                        }
                     }
                 }
             }
@@ -1213,8 +1184,8 @@ struct FooterMenuItem: View {
                             .fill(
                                 LinearGradient(
                                     gradient: Gradient(colors: [
-                                        Color.blue.opacity(0.2),
-                                        Color.purple.opacity(0.2)
+                                        Color.blue.opacity(0.5),
+                                        Color.purple.opacity(0.5)
                                     ]),
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
@@ -1234,16 +1205,19 @@ struct FooterMenuItem: View {
                                 endPoint: .bottomTrailing
                             ) :
                             LinearGradient(
-                                gradient: Gradient(colors: [.gray, .gray]),
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+                                gradient: Gradient(colors: [
+                                    Color(red: 0.70, green: 0.80, blue: 1.0),
+                                    Color(red: 0.80, green: 0.75, blue: 1.0)
+                                ]),
+                                startPoint: .top,
+                                endPoint: .bottom
                             )
                         )
                 }
                 
                 Text(title)
                     .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-                    .foregroundColor(isSelected ? .primary : .secondary)
+                    .foregroundColor(isSelected ? Color.white : Color.white.opacity(0.8))
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
@@ -1266,783 +1240,87 @@ struct FooterMenuItem: View {
     }
 }
 
-struct PeopleSearchBar: View {
-    @Binding var text: String
-    let onSearch: () -> Void
-    @FocusState private var isFocused: Bool
-    
-    var body: some View {
-        HStack {
-            HStack(spacing: 12) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                    .font(.system(size: 18))
-                
-                TextField("Search people...", text: $text)
-                    .focused($isFocused)
-                    .autocapitalization(.none)
-                    .onSubmit(onSearch)
-                
-                if !text.isEmpty {
-                    Button(action: {
-                        text = ""
-                        isFocused = false
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                            .font(.system(size: 18))
-                    }
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(.ultraThinMaterial)
-                    
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(
-                            LinearGradient(
-                                gradient: Gradient(colors: [
-                                    Color.white.opacity(isFocused ? 0.4 : 0.2),
-                                    Color.white.opacity(isFocused ? 0.3 : 0.1)
-                                ]),
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                }
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(
-                        LinearGradient(
-                            gradient: Gradient(colors: [
-                                Color.white.opacity(0.6),
-                                Color.white.opacity(0.2)
-                            ]),
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: isFocused ? 1.5 : 1
-                    )
-            )
-            .shadow(color: Color.black.opacity(0.05), radius: isFocused ? 12 : 8, y: isFocused ? 6 : 4)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isFocused)
-        }
-    }
-}
-
-struct ConnectView: View {
-    @State private var searchText = ""
-    @State private var selectedSegment = 0
-    @State private var friends: [Friend] = [
-        Friend(id: "1", name: "Sarah Parker", username: "@sarah_p", avatar: "person.circle.fill", isOnline: true),
-        Friend(id: "2", name: "Mike Johnson", username: "@mike_j", avatar: "person.circle.fill", isOnline: false),
-        Friend(id: "3", name: "Emma Wilson", username: "@emma_w", avatar: "person.circle.fill", isOnline: true)
-    ]
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            // Search bar for finding friends
-            PeopleSearchBar(text: $searchText, onSearch: searchFriends)
-                .padding()
-                .background(
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 0)
-                            .fill(.ultraThinMaterial)
-                    }
-                )
-            
-            // Segment control
-            Picker("View", selection: $selectedSegment) {
-                Text("Friends").tag(0)
-                Text("Requests").tag(1)
-                Text("Discover").tag(2)
-            }
-            .pickerStyle(SegmentedPickerStyle())
-            .padding()
-            
-            // Content based on selected segment
-            ScrollView {
-                VStack(spacing: 16) {
-                    switch selectedSegment {
-                    case 0:
-                        if !searchText.isEmpty {
-                            // Show search results
-                            let filteredFriends = friends.filter {
-                                $0.name.lowercased().contains(searchText.lowercased()) ||
-                                $0.username.lowercased().contains(searchText.lowercased())
-                            }
-                            if filteredFriends.isEmpty {
-                                VStack(spacing: 12) {
-                                    Image(systemName: "person.slash")
-                                        .font(.system(size: 50))
-                                        .foregroundColor(.gray)
-                                    Text("No results found")
-                                        .font(.headline)
-                                        .foregroundColor(.gray)
-                                }
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .padding(.top, 50)
-                            } else {
-                                FriendsListView(friends: filteredFriends)
-                            }
-                        } else {
-                            FriendsListView(friends: friends)
-                        }
-                    case 1:
-                        FriendRequestsView()
-                    case 2:
-                        DiscoverView()
-                    default:
-                        EmptyView()
-                    }
-                }
-                .padding()
-            }
-        }
-    }
-    
-    private func searchFriends() {
-        // Real-time search is already implemented in the view
-    }
-}
-
-struct Friend: Identifiable {
-    let id: String
-    let name: String
-    let username: String
-    let avatar: String
-    let isOnline: Bool
-}
-
-struct FriendsListView: View {
-    let friends: [Friend]
-    
-    var body: some View {
-        VStack(spacing: 16) {
-            ForEach(friends) { friend in
-                FriendRow(friend: friend)
-            }
-        }
-    }
-}
-
-struct FriendRow: View {
-    let friend: Friend
-    @State private var isShowingShareSheet = false
-    
-    var body: some View {
-        HStack {
-            // Avatar
-            ZStack {
-                Image(systemName: friend.avatar)
-                    .font(.system(size: 40))
-                    .foregroundColor(.gray)
-                
-                // Online indicator
-                if friend.isOnline {
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 12, height: 12)
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white, lineWidth: 2)
-                        )
-                        .offset(x: 15, y: 15)
-                }
-            }
-            
-            // Name and username
-            VStack(alignment: .leading, spacing: 4) {
-                Text(friend.name)
-                    .font(.headline)
-                Text(friend.username)
-                    .font(.subheadline)
-                    .foregroundColor(.gray)
-            }
-            
-            Spacer()
-            
-            // Share button
-            Button(action: { isShowingShareSheet = true }) {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 20))
-                    .foregroundColor(.blue)
-            }
-        }
-        .padding()
-        .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(.thinMaterial)
-                
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(
-                        LinearGradient(
-                            gradient: Gradient(colors: [
-                                Color.white.opacity(0.3),
-                                Color.white.opacity(0.1)
-                            ]),
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            }
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(
-                    LinearGradient(
-                        gradient: Gradient(colors: [
-                            Color.white.opacity(0.5),
-                            Color.white.opacity(0.2)
-                        ]),
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
-        )
-        .shadow(color: Color.black.opacity(0.08), radius: 10, y: 4)
-        .sheet(isPresented: $isShowingShareSheet) {
-            ShareSheet(friend: friend)
-        }
-    }
-}
-
-struct ShareSheet: View {
-    let friend: Friend
-    @Environment(\.presentationMode) var presentationMode
-    @State private var selectedAlbums: Set<String> = []
-    
-    let albums = [
-        Album(id: "1", name: "Summer 2024", count: 45),
-        Album(id: "2", name: "Family Trip", count: 128),
-        Album(id: "3", name: "Birthday Party", count: 67)
-    ]
-    
-    var body: some View {
-        NavigationView {
-            List {
-                Section(header: Text("Share Capsules with \(friend.name)")) {
-                    ForEach(albums) { album in
-                        AlbumRow(
-                            album: album,
-                            isSelected: selectedAlbums.contains(album.id)
-                        ) {
-                            if selectedAlbums.contains(album.id) {
-                                selectedAlbums.remove(album.id)
-                            } else {
-                                selectedAlbums.insert(album.id)
-                            }
-                        }
-                    }
-                }
-            }
-            .listStyle(InsetGroupedListStyle())
-            .navigationBarTitle("Share Capsules", displayMode: .inline)
-            .navigationBarItems(
-                leading: Button("Cancel") {
-                    presentationMode.wrappedValue.dismiss()
-                },
-                trailing: Button("Share") {
-                    shareAlbums()
-                }
-                .disabled(selectedAlbums.isEmpty)
-            )
-        }
-    }
-    
-    private func shareAlbums() {
-        // Implement sharing functionality
-        presentationMode.wrappedValue.dismiss()
-    }
-}
-
-struct Album: Identifiable {
-    let id: String
-    let name: String
-    let count: Int
-}
-
-struct AlbumRow: View {
-    let album: Album
-    let isSelected: Bool
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(album.name)
-                        .font(.headline)
-                    Text("\(album.count) photos")
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
-                }
-                
-                Spacer()
-                
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.blue)
-                } else {
-                    Image(systemName: "circle")
-                        .foregroundColor(.gray)
-                }
-            }
-        }
-        .foregroundColor(.primary)
-    }
-}
-
-struct FriendRequestsView: View {
-    var body: some View {
-        VStack(spacing: 16) {
-            RequestRow(name: "John Smith", username: "@john_s", mutualFriends: 3)
-            RequestRow(name: "Lisa Brown", username: "@lisa_b", mutualFriends: 5)
-        }
-    }
-}
-
-struct RequestRow: View {
-    let name: String
-    let username: String
-    let mutualFriends: Int
-    
-    var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Image(systemName: "person.circle.fill")
-                    .font(.system(size: 40))
-                    .foregroundColor(.gray)
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(name)
-                        .font(.headline)
-                    Text(username)
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
-                    Text("\(mutualFriends) mutual friends")
-                        .font(.caption)
-                        .foregroundColor(.blue)
-                }
-                
-                Spacer()
-            }
-            
-            HStack(spacing: 12) {
-                Button(action: { /* Accept friend request */ }) {
-                    Text("Accept")
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [
-                                                Color.blue,
-                                                Color.purple
-                                            ]),
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [
-                                                Color.white.opacity(0.2),
-                                                Color.white.opacity(0.0)
-                                            ]),
-                                            startPoint: .top,
-                                            endPoint: .bottom
-                                        )
-                                    )
-                            }
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [
-                                            Color.white.opacity(0.4),
-                                            Color.white.opacity(0.1)
-                                        ]),
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 1
-                                )
-                        )
-                        .shadow(color: .blue.opacity(0.3), radius: 8, y: 4)
-                }
-                
-                Button(action: { /* Decline friend request */ }) {
-                    Text("Decline")
-                        .fontWeight(.semibold)
-                        .foregroundColor(.blue)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(.ultraThinMaterial)
-                                
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [
-                                                Color.blue.opacity(0.15),
-                                                Color.blue.opacity(0.05)
-                                            ]),
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                            }
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [
-                                            Color.blue.opacity(0.4),
-                                            Color.blue.opacity(0.2)
-                                        ]),
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 1
-                                )
-                        )
-                }
-            }
-        }
-        .padding()
-        .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(.thinMaterial)
-                
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(
-                        LinearGradient(
-                            gradient: Gradient(colors: [
-                                Color.white.opacity(0.3),
-                                Color.white.opacity(0.1)
-                            ]),
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            }
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(
-                    LinearGradient(
-                        gradient: Gradient(colors: [
-                            Color.white.opacity(0.5),
-                            Color.white.opacity(0.2)
-                        ]),
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
-        )
-        .shadow(color: Color.black.opacity(0.08), radius: 10, y: 4)
-    }
-}
-
-struct DiscoverView: View {
-    let suggestions = [
-        Friend(id: "4", name: "Alex Turner", username: "@alex_t", avatar: "person.circle.fill", isOnline: true),
-        Friend(id: "5", name: "Rachel Green", username: "@rachel_g", avatar: "person.circle.fill", isOnline: false)
-    ]
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Suggested Friends")
-                .font(.headline)
-                .padding(.horizontal)
-            
-            ForEach(suggestions) { suggestion in
-                SuggestionRow(friend: suggestion)
-            }
-        }
-    }
-}
-
-struct SuggestionRow: View {
-    let friend: Friend
-    
-    var body: some View {
-        HStack {
-            Image(systemName: friend.avatar)
-                .font(.system(size: 40))
-                .foregroundColor(.gray)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(friend.name)
-                    .font(.headline)
-                Text(friend.username)
-                    .font(.subheadline)
-                    .foregroundColor(.gray)
-            }
-            
-            Spacer()
-            
-            Button(action: { /* Add friend */ }) {
-                Text("Add Friend")
-                    .fontWeight(.semibold)
-                    .foregroundColor(.blue)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(.ultraThinMaterial)
-                            
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [
-                                            Color.blue.opacity(0.15),
-                                            Color.blue.opacity(0.05)
-                                        ]),
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                        }
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [
-                                        Color.blue.opacity(0.4),
-                                        Color.blue.opacity(0.2)
-                                    ]),
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1
-                            )
-                    )
-            }
-        }
-        .padding()
-        .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(.thinMaterial)
-                
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(
-                        LinearGradient(
-                            gradient: Gradient(colors: [
-                                Color.white.opacity(0.3),
-                                Color.white.opacity(0.1)
-                            ]),
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            }
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(
-                    LinearGradient(
-                        gradient: Gradient(colors: [
-                            Color.white.opacity(0.5),
-                            Color.white.opacity(0.2)
-                        ]),
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
-        )
-        .shadow(color: Color.black.opacity(0.08), radius: 10, y: 4)
-    }
-}
-
 struct SettingsView: View {
-    @State private var locationPermission = false
-    @State private var mediaPermission = false
-    @State private var showingSubscriptionSheet = false
-    @State private var showingHelpSheet = false
     @State private var showingContactSheet = false
     @State private var showingAboutSheet = false
-    
-    // Mock user data
-    let user = UserProfile(
-        name: "Raj",
-        photo: "person.circle.fill",
-        accountType: .bronze,
-        isSubscribed: false
-    )
+    @State private var isImportingTestImages = false
+    @State private var importMessage = ""
+    @State private var showImportAlert = false
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // Profile Section
-                VStack(spacing: 16) {
-                    Image(systemName: user.photo)
-                        .font(.system(size: 80))
-                        .foregroundColor(.gray)
-                        .frame(width: 120, height: 120)
-                        .background(Color(.systemGray6))
-                        .clipShape(Circle())
-                    
-                    Text(user.name)
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                    
-                    AccountTypeView(type: user.accountType)
-                }
-                .padding(.vertical)
-                
-                // Permissions Section
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Permissions")
-                        .font(.headline)
-                        .padding(.horizontal)
-                    
-                    VStack(spacing: 0) {
-                        Toggle(isOn: $locationPermission) {
-                            HStack {
-                                Image(systemName: "location.fill")
-                                    .foregroundStyle(
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [.blue, .purple]),
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                Text("Location Access")
-                            }
-                        }
-                        .padding()
-                        .background(
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 0)
-                                    .fill(.ultraThinMaterial)
-                            }
-                        )
-                        
-                        Divider()
-                            .padding(.horizontal)
-                            .background(Color.white.opacity(0.3))
-                        
-                        Toggle(isOn: $mediaPermission) {
-                            HStack {
-                                Image(systemName: "photo.fill")
-                                    .foregroundStyle(
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [.blue, .purple]),
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                Text("Media Access")
-                            }
-                        }
-                        .padding()
-                        .background(
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 0)
-                                    .fill(.ultraThinMaterial)
-                            }
-                        )
+        ZStack {
+            // Keep About screen background clean and white
+            Color.white
+                .ignoresSafeArea()
+            
+            ScrollView {
+                VStack(spacing: 24) {
+                    // SnapCapsule Logo Section
+                    VStack(spacing: 16) {
+                        Image("SnapCapsuleLogo")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 140, height: 140)
+                            .padding(.top, 16)
                     }
-                    .background(
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(.thinMaterial)
-                            
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [
-                                            Color.white.opacity(0.3),
-                                            Color.white.opacity(0.1)
-                                        ]),
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                        }
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [
-                                        Color.white.opacity(0.5),
-                                        Color.white.opacity(0.2)
-                                    ]),
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1
-                            )
-                    )
-                    .shadow(color: Color.black.opacity(0.08), radius: 12, y: 6)
-                }
+                    .padding(.vertical)
                 
-                // Subscription Section
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Subscription")
-                        .font(.headline)
-                        .padding(.horizontal)
-                    
-                    Button(action: { showingSubscriptionSheet = true }) {
-                        HStack {
-                            Image(systemName: "star.circle.fill")
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [.yellow, .orange]),
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                            Text("Upgrade to Premium")
-                                .fontWeight(.semibold)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.secondary)
-                        }
-                        .padding()
-                        .background(
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(.thinMaterial)
-                                
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [
-                                                Color.white.opacity(0.3),
-                                                Color.white.opacity(0.1)
-                                            ]),
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
+                    // Support Section
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Support")
+                            .font(.headline)
+                            .foregroundColor(.gray)
+                            .fontWeight(.bold)
+                            .padding(.horizontal)
+                        
+                        VStack(spacing: 0) {
+                            Button(action: { showingContactSheet = true }) {
+                                HStack {
+                                    Image(systemName: "envelope.fill")
+                                        .foregroundStyle(
+                                            LinearGradient(
+                                                gradient: Gradient(colors: [.blue, .purple]),
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
                                         )
-                                    )
+                                    Text("Contact Us")
+                                        .foregroundColor(.gray)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding()
                             }
+                            
+                            Divider()
+                                .padding(.horizontal)
+                                .background(Color.white.opacity(0.15))
+                            
+                            Button(action: { showingAboutSheet = true }) {
+                                HStack {
+                                    Image(systemName: "info.circle.fill")
+                                        .foregroundStyle(
+                                            LinearGradient(
+                                                gradient: Gradient(colors: [.blue, .purple]),
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
+                                    Text("About Us")
+                                        .foregroundColor(.gray)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding()
+                            }
+                        }
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color(red: 0.94, green: 0.94, blue: 0.96)) // light gray tiles
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 16)
@@ -2060,146 +1338,15 @@ struct SettingsView: View {
                         )
                         .shadow(color: Color.black.opacity(0.08), radius: 12, y: 6)
                     }
-                }
-                
-                // Support Section
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Support")
-                        .font(.headline)
-                        .padding(.horizontal)
                     
-                    VStack(spacing: 0) {
-                        Button(action: { showingHelpSheet = true }) {
-                            HStack {
-                                Image(systemName: "questionmark.circle.fill")
-                                    .foregroundStyle(
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [.blue, .purple]),
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                Text("Help & Support")
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding()
-                            .background(
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 0)
-                                        .fill(.ultraThinMaterial)
-                                }
-                            )
-                        }
-                        
-                        Divider()
-                            .padding(.horizontal)
-                            .background(Color.white.opacity(0.3))
-                        
-                        Button(action: { showingContactSheet = true }) {
-                            HStack {
-                                Image(systemName: "envelope.fill")
-                                    .foregroundStyle(
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [.blue, .purple]),
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                Text("Contact Us")
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding()
-                            .background(
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 0)
-                                        .fill(.ultraThinMaterial)
-                                }
-                            )
-                        }
-                        
-                        Divider()
-                            .padding(.horizontal)
-                            .background(Color.white.opacity(0.3))
-                        
-                        Button(action: { showingAboutSheet = true }) {
-                            HStack {
-                                Image(systemName: "info.circle.fill")
-                                    .foregroundStyle(
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [.blue, .purple]),
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                Text("About Us")
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding()
-                            .background(
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 0)
-                                        .fill(.ultraThinMaterial)
-                                }
-                            )
-                        }
-                    }
-                    .background(
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(.thinMaterial)
-                            
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [
-                                            Color.white.opacity(0.3),
-                                            Color.white.opacity(0.1)
-                                        ]),
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                        }
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [
-                                        Color.white.opacity(0.5),
-                                        Color.white.opacity(0.2)
-                                    ]),
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1
-                            )
-                    )
-                    .shadow(color: Color.black.opacity(0.08), radius: 12, y: 6)
+                    // Version info
+                    Text("Version 1.0.0")
+                        .font(.footnote)
+                        .foregroundColor(.gray)
+                        .padding(.top)
                 }
-                
-                // Version info
-                Text("Version 1.0.0")
-                    .font(.footnote)
-                    .foregroundColor(.gray)
-                    .padding(.top)
+                .padding()
             }
-            .padding()
-        }
-        .sheet(isPresented: $showingSubscriptionSheet) {
-            SubscriptionView()
-        }
-        .sheet(isPresented: $showingHelpSheet) {
-            HelpSupportView()
         }
         .sheet(isPresented: $showingContactSheet) {
             ContactView()
@@ -2257,146 +1404,6 @@ struct AccountTypeView: View {
     }
 }
 
-struct SubscriptionView: View {
-    @Environment(\.dismiss) var dismiss
-    
-    var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 24) {
-                    Text("Choose Your Plan")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .padding(.top)
-                    
-                    // Bronze Plan
-                    PlanCard(
-                        type: .bronze,
-                        price: "Free",
-                        features: [
-                            "5 AI Search requests per day",
-                            "Basic photo storage",
-                            "No sharing capabilities",
-                            "Standard support"
-                        ],
-                        isRecommended: false
-                    )
-                    
-                    // Silver Plan
-                    PlanCard(
-                        type: .silver,
-                        price: "$20",
-                        features: [
-                            "50 AI Search requests per day",
-                            "Enhanced photo storage",
-                            "Share capsules with up to 5 members",
-                            "Priority support"
-                        ],
-                        isRecommended: true
-                    )
-                    
-                    // Gold Plan
-                    PlanCard(
-                        type: .gold,
-                        price: "$50",
-                        features: [
-                            "Unlimited AI Search requests",
-                            "Premium photo storage",
-                            "Share capsules with unlimited members",
-                            "24/7 Premium support"
-                        ],
-                        isRecommended: false
-                    )
-                    
-                    // Terms and conditions
-                    Text("Prices are in USD and billed monthly. Cancel anytime.")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
-                .padding()
-            }
-            .navigationBarTitle("Premium Subscription", displayMode: .inline)
-            .navigationBarItems(trailing: Button("Done") {
-                dismiss()
-            })
-        }
-    }
-}
-
-struct PlanCard: View {
-    let type: AccountType
-    let price: String
-    let features: [String]
-    let isRecommended: Bool
-    
-    var body: some View {
-        VStack(spacing: 16) {
-            if isRecommended {
-                Text("RECOMMENDED")
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .background(Color.blue)
-                    .cornerRadius(12)
-            }
-            
-            HStack {
-                Image(systemName: "medal.fill")
-                    .foregroundColor(type.color)
-                Text(type.title)
-                    .font(.title3)
-                    .fontWeight(.bold)
-            }
-            
-            Text(price)
-                .font(.system(size: 32, weight: .bold))
-            + Text("/month")
-                .font(.subheadline)
-                .foregroundColor(.gray)
-            
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(features, id: \.self) { feature in
-                    HStack(alignment: .top) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .font(.system(size: 16))
-                        Text(feature)
-                            .font(.subheadline)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical)
-            
-            Button(action: {
-                // Handle subscription
-            }) {
-                Text(type == .bronze ? "Current Plan" : "Upgrade")
-                    .fontWeight(.semibold)
-                    .foregroundColor(type == .bronze ? .gray : .white)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(type == .bronze ? Color.gray.opacity(0.1) : Color.blue)
-                    .cornerRadius(12)
-            }
-            .disabled(type == .bronze)
-        }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(16)
-        .shadow(color: isRecommended ? Color.blue.opacity(0.1) : Color.black.opacity(0.05), radius: 8, y: 4)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(isRecommended ? Color.blue.opacity(0.3) : Color.clear, lineWidth: 2)
-        )
-    }
-}
-
 struct HelpSupportView: View {
     @Environment(\.dismiss) var dismiss
     
@@ -2421,29 +1428,89 @@ struct HelpSupportView: View {
 
 struct ContactView: View {
     @Environment(\.dismiss) var dismiss
-    @State private var subject = ""
-    @State private var message = ""
     
     var body: some View {
         NavigationView {
-            Form {
-                Section(header: Text("Message")) {
-                    TextField("Subject", text: $subject)
-                    TextEditor(text: $message)
-                        .frame(height: 150)
-                }
-                
-                Section {
-                    Button(action: {
-                        // Handle sending message here
-                        dismiss()
-                    }) {
-                        Text("Send Message")
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Icon
+                    Image(systemName: "envelope.circle.fill")
+                        .font(.system(size: 80))
+                        .foregroundStyle(
+                            LinearGradient(
+                                gradient: Gradient(colors: [.blue, .purple]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .padding(.top, 40)
+                    
+                    // Message
+                    VStack(spacing: 16) {
+                        Text("Contact Us")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.gray)
+                        
+                        Text("We're here to help! Whether you have questions, need support, or want to share feedback, our team is ready to assist you. Reach out to us and we'll get back to you as soon as possible.")
+                            .font(.body)
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                        
+                        // Email address
+                        Button(action: {
+                            if let url = URL(string: "mailto:dev@snapcapsule.com") {
+                                UIApplication.shared.open(url)
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: "envelope.fill")
+                                Text("dev@snapcapsule.com")
+                                    .fontWeight(.semibold)
+                            }
+                            .font(.headline)
+                            .foregroundColor(.gray)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 16)
+                            .background(
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(Color(.systemBackground))
+                                    
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(
+                                            LinearGradient(
+                                                gradient: Gradient(colors: [
+                                                    Color.white.opacity(0.9),
+                                                    Color.white.opacity(0.7)
+                                                ]),
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
+                                }
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(
+                                        Color.blue.opacity(0.5),
+                                        lineWidth: 2
+                                    )
+                            )
+                            .shadow(color: Color.black.opacity(0.15), radius: 8, y: 4)
+                        }
+                        .padding(.top, 8)
                     }
+                    .padding(.horizontal, 32)
+                    
+                    Spacer()
                 }
+                .padding()
             }
+            .background(Color.white.ignoresSafeArea())
             .navigationBarTitle("Contact Us", displayMode: .inline)
-            .navigationBarItems(trailing: Button("Cancel") {
+            .navigationBarItems(trailing: Button("Done") {
                 dismiss()
             })
         }
@@ -2452,22 +1519,21 @@ struct ContactView: View {
 
 struct AboutUsView: View {
     @Environment(\.dismiss) var dismiss
+    @State private var showEmailCopiedAlert = false
     
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 24) {
                     // App Logo
-                    Image(systemName: "camera.circle.fill")
-                        .font(.system(size: 80))
-                        .foregroundColor(.blue)
+                    Image("SnapCapsuleLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 100, height: 100)
                         .padding(.top, 20)
                     
-                    // App Name and Version
+                    // App Version
                     VStack(spacing: 4) {
-                        Text("SnapCapsule")
-                            .font(.title)
-                            .fontWeight(.bold)
                         Text("Version 1.0.0")
                             .font(.subheadline)
                             .foregroundColor(.gray)
@@ -2477,17 +1543,17 @@ struct AboutUsView: View {
                     VStack(spacing: 16) {
                         descriptionSection(
                             title: "Our Mission",
-                            content: "SnapCapsule is dedicated to revolutionizing the way people capture, organize, and share their precious moments. We believe every photo tells a story worth preserving."
+                            content: "Snap Capsule is dedicated to revolutionizing the way people capture, organize, and explore their photo memories. We believe every photo tells a story worth preserving, and our goal is to make discovering those moments effortless."
                         )
                         
                         descriptionSection(
                             title: "What We Do",
-                            content: "We combine cutting-edge AI technology with intuitive design to help you organize and discover your photos in ways never before possible. Our smart search and sharing features make managing your photo collection effortless."
+                            content: "Snap Capsule combines intuitive design with powerful AI technology to help you organize and explore your photo collection. By analyzing images, the app can automatically identify objects, scenes, and content within your photos, making it easier to search, categorize, and rediscover your memories."
                         )
                         
                         descriptionSection(
                             title: "Privacy First",
-                            content: "Your privacy is our top priority. We employ industry-leading security measures to ensure your memories remain private and secure."
+                            content: "Your privacy is our top priority. Snap Capsule processes images only to analyze their visual content and generate labels that help organize your photo collection.\n\nWhen you choose to analyze a photo, the image may be securely sent to trusted AI services for processing. These images are used only for analysis and are not stored by Snap Capsule. We are committed to protecting your data and ensuring your memories remain private and secure."
                         )
                     }
                     .padding(.horizontal)
@@ -2496,28 +1562,51 @@ struct AboutUsView: View {
                     VStack(spacing: 8) {
                         Text("Connect With Us")
                             .font(.headline)
+                            .foregroundColor(.gray)
+                            .fontWeight(.bold)
                             .padding(.top)
                         
                         HStack(spacing: 20) {
-                            socialButton(icon: "link.circle.fill", url: "www.snapcapsule.com")
-                            socialButton(icon: "envelope.circle.fill", url: "support@snapcapsule.com")
-                            socialButton(icon: "message.circle.fill", url: "@snapcapsule")
+                            // Website
+                            Button {
+                                if let url = URL(string: "https://www.snapcapsule.com") {
+                                    UIApplication.shared.open(url)
+                                }
+                            } label: {
+                                Image(systemName: "link.circle.fill")
+                                    .foregroundColor(.blue)
+                            }
+                            
+                            // Copy support email
+                            Button {
+                                UIPasteboard.general.string = "dev@snapcapsule.com"
+                                showEmailCopiedAlert = true
+                            } label: {
+                                Image(systemName: "envelope.circle.fill")
+                                    .foregroundColor(.blue)
+                            }
                         }
                         .font(.system(size: 30))
                     }
                     
                     // Copyright
-                    Text("© 2024 SnapCapsule. All rights reserved.")
+                    Text("© 2025 Snap Capsule. All rights reserved.")
                         .font(.caption)
                         .foregroundColor(.gray)
                         .padding(.top)
                 }
                 .padding()
             }
+            .background(Color.white.ignoresSafeArea())
             .navigationBarTitle("About Us", displayMode: .inline)
             .navigationBarItems(trailing: Button("Done") {
                 dismiss()
             })
+            .alert("Email Copied", isPresented: $showEmailCopiedAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("`dev@snapcapsule.com` has been copied. Please email to this address.")
+            }
         }
     }
     
@@ -2525,22 +1614,17 @@ struct AboutUsView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.headline)
+                .foregroundColor(.gray)
+                .fontWeight(.bold)
             Text(content)
                 .font(.body)
-                .foregroundColor(.secondary)
+                .foregroundColor(.gray)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
     
-    private func socialButton(icon: String, url: String) -> some View {
-        Button(action: {
-            // Handle social link tap
-        }) {
-            Image(systemName: icon)
-                .foregroundColor(.blue)
-        }
-    }
+    // Removed old generic socialButton – actions are now explicit per icon
 }
 
 // MARK: - Loading Overlay

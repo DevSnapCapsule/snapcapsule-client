@@ -1,5 +1,4 @@
 import SwiftUI
-import CoreLocation
 
 struct ImageMetadataContent: View {
     let image: UIImage
@@ -10,59 +9,7 @@ struct ImageMetadataContent: View {
         
         print("Processing metadata in ImageMetadataContent: \(metadata)")
         
-        // Extract GPS info
-        if let gpsInfo = metadata["{GPS}"] as? [String: Any] {
-            print("Found GPS info: \(gpsInfo)")
-            
-            var locationFound = false
-            
-            // Try standard format
-            if let latitudeRef = gpsInfo["LatitudeRef"] as? String,
-               let latitude = gpsInfo["Latitude"] as? Double,
-               let longitudeRef = gpsInfo["LongitudeRef"] as? String,
-               let longitude = gpsInfo["Longitude"] as? Double {
-                
-                let lat = latitudeRef == "N" ? latitude : -latitude
-                let lon = longitudeRef == "E" ? longitude : -longitude
-                result.append(("Location", String(format: "%.6f, %.6f", lat, lon)))
-                locationFound = true
-            }
-            // Try array format (some cameras store coordinates as arrays)
-            else if let latitudeArray = gpsInfo["Latitude"] as? [Double],
-                    let longitudeArray = gpsInfo["Longitude"] as? [Double],
-                    let latRef = gpsInfo["LatitudeRef"] as? String,
-                    let lonRef = gpsInfo["LongitudeRef"] as? String {
-                
-                let latitude = latitudeArray[0] + (latitudeArray[1] / 60.0) + (latitudeArray[2] / 3600.0)
-                let longitude = longitudeArray[0] + (longitudeArray[1] / 60.0) + (longitudeArray[2] / 3600.0)
-                
-                let lat = latRef == "N" ? latitude : -latitude
-                let lon = lonRef == "E" ? longitude : -longitude
-                result.append(("Location", String(format: "%.6f, %.6f", lat, lon)))
-                locationFound = true
-            }
-            // Try direct coordinate format
-            else if let latitude = gpsInfo["Latitude"] as? Double,
-                    let longitude = gpsInfo["Longitude"] as? Double {
-                result.append(("Location", String(format: "%.6f, %.6f", latitude, longitude)))
-                locationFound = true
-            }
-            
-            if !locationFound {
-                result.append(("Location", "No location data available"))
-            }
-            
-            if let timestamp = gpsInfo["TimeStamp"] as? String,
-               let datestamp = gpsInfo["DateStamp"] as? String {
-                result.append(("GPS Time", "\(datestamp) \(timestamp)"))
-            }
-            
-            // Add all GPS data for debugging
-            result.append(("Raw GPS Data", "\(gpsInfo)"))
-        } else {
-            result.append(("Location", "No location data available - Enable Location Services when taking photos to include location information"))
-        }
-        
+        // Do not parse or display GPS location data to avoid collecting coordinates
         // Extract basic EXIF info
         if let exif = metadata["{Exif}"] as? [String: Any] {
             if let dateTime = exif["DateTimeOriginal"] as? String {

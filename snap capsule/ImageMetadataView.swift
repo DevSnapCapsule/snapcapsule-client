@@ -1,5 +1,4 @@
 import SwiftUI
-import CoreLocation
 
 struct ImageMetadataView: View {
     let image: UIImage
@@ -18,8 +17,6 @@ struct ImageMetadataView: View {
             formatter.dateStyle = .long
             formatter.timeStyle = .medium
             return formatter.string(from: date)
-        } else if let location = value as? CLLocation {
-            return String(format: "%.6f, %.6f", location.coordinate.latitude, location.coordinate.longitude)
         }
         return "\(value)"
     }

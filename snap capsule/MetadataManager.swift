@@ -1,5 +1,4 @@
 import CoreData
-import CoreLocation
 import Foundation
 
 class MetadataManager {
@@ -8,12 +7,14 @@ class MetadataManager {
     private let persistentContainer: NSPersistentContainer
     
     private init() {
-        persistentContainer = NSPersistentContainer(name: "SnapCapsule")
-        persistentContainer.loadPersistentStores { description, error in
+        let container = NSPersistentContainer(name: "SnapCapsule")
+        container.loadPersistentStores { description, error in
             if let error = error {
-                fatalError("Failed to load Core Data stack: \(error)")
+                // Avoid crashing the app; log the error instead.
+                print("❌ Failed to load Core Data stack in MetadataManager: \(error)")
             }
         }
+        persistentContainer = container
     }
     
     // MARK: - Save Operations
@@ -24,8 +25,9 @@ class MetadataManager {
         let imageEntity = ImageEntity(context: context)
         imageEntity.id = UUID()
         imageEntity.timestamp = metadata.timestamp
-        imageEntity.latitude = metadata.location?.coordinate.latitude ?? 0
-        imageEntity.longitude = metadata.location?.coordinate.longitude ?? 0
+        // Do not collect or store location data
+        imageEntity.latitude = 0
+        imageEntity.longitude = 0
         imageEntity.searchableText = metadata.searchableText
         
         // Save labels
@@ -87,11 +89,14 @@ class MetadataManager {
     // MARK: - Search Operations
     
     func searchImages(query: String) -> [ImageSearchResult] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return [] }
+        
         let context = persistentContainer.viewContext
         let fetchRequest = ImageEntity.fetchRequest()
         
         // Create compound predicate for searching across all metadata
-        let searchPredicate = NSPredicate(format: "searchableText CONTAINS[cd] %@", query)
+        let searchPredicate = NSPredicate(format: "searchableText CONTAINS[cd] %@", trimmedQuery)
         fetchRequest.predicate = searchPredicate
         
         do {
@@ -106,10 +111,6 @@ class MetadataManager {
                 return ImageSearchResult(
                     imageId: id,
                     timestamp: timestamp,
-                    location: CLLocation(
-                        latitude: entity.latitude,
-                        longitude: entity.longitude
-                    ),
                     matchedText: searchableText
                 )
             }

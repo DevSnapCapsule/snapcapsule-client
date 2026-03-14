@@ -1,12 +1,10 @@
 import Foundation
 import Vision
-import CoreLocation
 import UIKit
 
 struct ImageMetadata {
     let imageId: UUID
     let timestamp: Date
-    let location: CLLocation?
     let labels: [String]
     let colors: [String]
     let objects: [String]
@@ -22,12 +20,41 @@ class ImageAnalyzer {
     
     private init() {}
     
-    func analyzeImage(_ image: UIImage, location: CLLocation?, completion: @escaping (ImageMetadata) -> Void) {
-        guard let cgImage = image.cgImage else { return }
+    func analyzeImage(_ image: UIImage, completion: @escaping (ImageMetadata) -> Void) {
+        func makeFallbackMetadata() -> ImageMetadata {
+            let emptyProductInfo = ProductAnalyzer.shared.extractProductInfo(
+                from: [],
+                objects: [],
+                brands: [],
+                faces: []
+            )
+            
+            return ImageMetadata(
+                imageId: UUID(),
+                timestamp: Date(),
+                labels: [],
+                colors: [],
+                objects: [],
+                scenes: [],
+                faces: [],
+                brands: [],
+                searchableText: "",
+                productInfo: emptyProductInfo
+            )
+        }
+        
+        guard let cgImage = image.cgImage else {
+            // Ensure callers always receive a completion to avoid hangs.
+            completion(makeFallbackMetadata())
+            return
+        }
         
         // Resize image for optimal processing and API efficiency
         let optimizedImage = resizeImageForAnalysis(image)
-        guard let optimizedCGImage = optimizedImage.cgImage else { return }
+        guard let optimizedCGImage = optimizedImage.cgImage else {
+            completion(makeFallbackMetadata())
+            return
+        }
         
         var labels: Set<String> = []
         var objects: Set<String> = []
@@ -127,7 +154,6 @@ class ImageAnalyzer {
             let metadata = ImageMetadata(
                 imageId: UUID(),
                 timestamp: Date(),
-                location: location,
                 labels: Array(labels),
                 colors: Array(colors),
                 objects: Array(objects),

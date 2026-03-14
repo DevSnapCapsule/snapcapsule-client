@@ -6,6 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		C3A7F7D52ED07F3B00F49C52 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = C3A7F7D42ED07F3B00F49C52 /* FirebaseAuth */; };
+		C3A7F7D72ED07F3B00F49C52 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = C3A7F7D62ED07F3B00F49C52 /* FirebaseCore */; };
+		C3A7F7D92ED07F3B00F49C52 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = C3A7F7D82ED07F3B00F49C52 /* FirebaseFirestore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		C3ED3E892DE3A9A70028180D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +58,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C3A7F7D52ED07F3B00F49C52 /* FirebaseAuth in Frameworks */,
+				C3A7F7D72ED07F3B00F49C52 /* FirebaseCore in Frameworks */,
+				C3A7F7D92ED07F3B00F49C52 /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +121,9 @@
 			);
 			name = "snap capsule";
 			packageProductDependencies = (
+				C3A7F7D42ED07F3B00F49C52 /* FirebaseAuth */,
+				C3A7F7D62ED07F3B00F49C52 /* FirebaseCore */,
+				C3A7F7D82ED07F3B00F49C52 /* FirebaseFirestore */,
 			);
 			productName = "snap capsule";
 			productReference = C3ED3E7B2DE3A9A60028180D /* snap capsule.app */;
@@ -134,8 +146,6 @@
 				C3ED3E8B2DE3A9A70028180D /* snap capsuleTests */,
 			);
 			name = "snap capsuleTests";
-			packageProductDependencies = (
-			);
 			productName = "snap capsuleTests";
 			productReference = C3ED3E882DE3A9A70028180D /* snap capsuleTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -157,8 +167,6 @@
 				C3ED3E952DE3A9A70028180D /* snap capsuleUITests */,
 			);
 			name = "snap capsuleUITests";
-			packageProductDependencies = (
-			);
 			productName = "snap capsuleUITests";
 			productReference = C3ED3E922DE3A9A70028180D /* snap capsuleUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
@@ -195,6 +203,10 @@
 			);
 			mainGroup = C3ED3E722DE3A9A60028180D;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				C3A7F7D22ED07E6200F49C52 /* XCRemoteSwiftPackageReference "swift-algorithms" */,
+				C3A7F7D32ED07EBB00F49C52 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C3ED3E7C2DE3A9A60028180D /* Products */;
 			projectDirPath = "";
@@ -323,10 +335,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "SnapCapsule needs access to your camera to take photos.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "SnapCapsule needs access to your location to tag photos with location data.";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "SnapCapsule needs access to your photo library to save captured photos.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "SnapCapsule needs access to your photo library to save captured photos.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Snap Capsule uses the camera to capture photos that can be analyzed with trusted AI services (like Google Cloud Vision via our secure backend) to automatically detect objects and help organize your photo collection.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -391,10 +400,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "SnapCapsule needs access to your camera to take photos.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "SnapCapsule needs access to your location to tag photos with location data.";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "SnapCapsule needs access to your photo library to save captured photos.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "SnapCapsule needs access to your photo library to save captured photos.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Snap Capsule uses the camera to capture photos that can be analyzed with trusted AI services (like Google Cloud Vision via our secure backend) to automatically detect objects and help organize your photo collection.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -415,11 +421,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "snap capsule/snap capsule.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = 2USALF9GCQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Snap Capsule";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -443,11 +451,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "snap capsule/snap capsule.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = 2USALF9GCQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Snap Capsule";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -578,6 +588,43 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C3A7F7D22ED07E6200F49C52 /* XCRemoteSwiftPackageReference "swift-algorithms" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-algorithms.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.2.1;
+			};
+		};
+		C3A7F7D32ED07EBB00F49C52 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.6.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C3A7F7D42ED07F3B00F49C52 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C3A7F7D32ED07EBB00F49C52 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		C3A7F7D62ED07F3B00F49C52 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C3A7F7D32ED07EBB00F49C52 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		C3A7F7D82ED07F3B00F49C52 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C3A7F7D32ED07EBB00F49C52 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C3ED3E732DE3A9A60028180D /* Project object */;
 }

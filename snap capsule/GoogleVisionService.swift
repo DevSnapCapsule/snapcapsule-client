@@ -18,28 +18,20 @@ enum VisionServiceError: Error {
 }
 
 // MARK: - Google Vision Service
+/// Calls the Vision API via a Cloud Function proxy so the API key never lives in the app.
 class GoogleVisionService {
     static let shared = GoogleVisionService()
     
-    private let apiKey: String
+    /// Cloud Function URL that holds the Vision API key and forwards requests.
+    private static let visionProxyURL = "https://vision-proxy-937348762913.europe-west1.run.app"
     
-    private init() {
-        // Try to get API key, use empty string if not configured (will be caught by isConfigured check)
-        self.apiKey = (try? GoogleVisionConfig.getAPIKey()) ?? ""
-    }
+    private init() {}
     
     // MARK: - Detect Labels and Logos
     func detectLabelsAndLogos(in image: UIImage, completion: @escaping (Result<([BrandDetectionResult], [String]), Error>) -> Void) {
-        print("🔍 Starting Google Vision API call for labels and logos")
+        print("🔍 Starting Vision API call via Cloud Function proxy for labels and logos")
         print("💡 Using ephemeral session with Connection: close to avoid QUIC issues")
         print("💡 The retry mechanism will attempt to resolve temporary network issues")
-        
-        // Check API key
-        guard GoogleVisionConfig.isConfigured else {
-            print("❌ API key not configured")
-            completion(.failure(VisionServiceError.invalidAPIKey))
-            return
-        }
         
         // Use the actual image but with proper resizing for network stability
         let resizedImage = resizeImageForNetwork(image)
@@ -85,44 +77,34 @@ class GoogleVisionService {
     }
     
     // MARK: - Helper Methods
-    private func makeAPICallForLabelsAndLogos(with base64String: String, completion: @escaping (Result<([BrandDetectionResult], [String]), Error>) -> Void) {
-        // Create API request using exact curl format
-        guard let url = URL(string: "https://vision.googleapis.com/v1/images:annotate?key=\(apiKey)") else {
-            print("❌ Invalid API URL")
-            completion(.failure(VisionServiceError.invalidAPIKey))
-            return
-        }
-        
-        // Create comprehensive request body with multiple detection features
-        let requestBody: [String: Any] = [
+    /// Builds the same Vision API request body as before (labels, logos, web, text) for full behavior.
+    private func visionRequestBody(base64Image: String) -> [String: Any] {
+        return [
             "requests": [
                 [
-                    "image": [
-                        "content": base64String
-                    ],
+                    "image": ["content": base64Image],
                     "features": [
-                        [
-                            "type": "LOGO_DETECTION",
-                            "maxResults": 5
-                        ],
-                        [
-                            "type": "LABEL_DETECTION", 
-                            "maxResults": 10  // Increased to get more labels
-                        ],
-                        [
-                            "type": "WEB_DETECTION",
-                            "maxResults": 3
-                        ],
-                        [
-                            "type": "TEXT_DETECTION",
-                            "maxResults": 10
-                        ]
+                        ["type": "LOGO_DETECTION", "maxResults": 5],
+                        ["type": "LABEL_DETECTION", "maxResults": 10],
+                        ["type": "WEB_DETECTION", "maxResults": 3],
+                        ["type": "TEXT_DETECTION", "maxResults": 10]
                     ]
                 ]
             ]
         ]
+    }
+    
+    private func makeAPICallForLabelsAndLogos(with base64String: String, completion: @escaping (Result<([BrandDetectionResult], [String]), Error>) -> Void) {
+        guard let url = URL(string: Self.visionProxyURL) else {
+            print("❌ Invalid Vision proxy URL")
+            completion(.failure(VisionServiceError.apiError("Invalid proxy URL")))
+            return
+        }
         
-        print("📋 Using request body (curl-compatible)")
+        // Send full Vision request (same as before); proxy adds API key and forwards.
+        let requestBody = visionRequestBody(base64Image: base64String)
+        
+        print("📋 Sending full Vision request (labels, logos, web, text) to proxy")
         
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
@@ -138,96 +120,51 @@ class GoogleVisionService {
             return
         }
         
-        print("🌐 Making API call to: \(url)")
+        print("🌐 Making API call to Vision proxy: \(url)")
         
-        // Configure URLSession for HTTP/2 stability (avoid QUIC issues)
-        let config = URLSessionConfiguration.ephemeral  // Cleaner sockets in simulator
+        // Configure URLSession for stability
+        let config = URLSessionConfiguration.ephemeral
         config.waitsForConnectivity = true
         config.timeoutIntervalForRequest = 60.0
         config.timeoutIntervalForResource = 120.0
         config.allowsCellularAccess = true
         config.httpAdditionalHeaders = [
             "Content-Type": "application/json",
-            "Connection": "close",  // Avoid keep-alive reuse on flaky paths
+            "Connection": "close",
             "Accept": "application/json"
         ]
         
         let session = URLSession(configuration: config)
         
-        // Make the API call with retry mechanism for -1017 errors
         self.makeAPICallWithRetryForLabelsAndLogos(session: session, urlRequest: urlRequest, retryCount: 0, completion: completion)
     }
     
     private func makeAPICall(with base64String: String, completion: @escaping (Result<[BrandDetectionResult], Error>) -> Void) {
-        // Create API request using exact curl format
-        guard let url = URL(string: "https://vision.googleapis.com/v1/images:annotate?key=\(apiKey)") else {
-            print("❌ Invalid API URL")
-            completion(.failure(VisionServiceError.invalidAPIKey))
+        guard let url = URL(string: Self.visionProxyURL) else {
+            completion(.failure(VisionServiceError.apiError("Invalid proxy URL")))
             return
         }
         
-        // Create comprehensive request body with multiple detection features
-        let requestBody: [String: Any] = [
-            "requests": [
-                [
-                    "image": [
-                        "content": base64String
-                    ],
-                    "features": [
-                        [
-                            "type": "LOGO_DETECTION",
-                            "maxResults": 5
-                        ],
-                        [
-                            "type": "LABEL_DETECTION", 
-                            "maxResults": 5
-                        ],
-                        [
-                            "type": "WEB_DETECTION",
-                            "maxResults": 3
-                        ],
-                        [
-                            "type": "TEXT_DETECTION",
-                            "maxResults": 10
-                        ]
-                    ]
-                ]
-            ]
-        ]
-        
-        print("📋 Using request body (curl-compatible)")
+        let requestBody = visionRequestBody(base64Image: base64String)
         
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
         
         do {
-            let jsonData = try JSONSerialization.data(withJSONObject: requestBody, options: [])
-            urlRequest.httpBody = jsonData
-            print("📋 JSON payload size: \(jsonData.count) bytes")
+            urlRequest.httpBody = try JSONSerialization.data(withJSONObject: requestBody, options: [])
         } catch {
-            print("❌ Failed to encode JSON request: \(error)")
             completion(.failure(error))
             return
         }
         
-        print("🌐 Making API call to: \(url)")
-        
-        // Configure URLSession for HTTP/2 stability (avoid QUIC issues)
-        let config = URLSessionConfiguration.ephemeral  // Cleaner sockets in simulator
+        let config = URLSessionConfiguration.ephemeral
         config.waitsForConnectivity = true
         config.timeoutIntervalForRequest = 60.0
         config.timeoutIntervalForResource = 120.0
-        config.allowsCellularAccess = true
-        config.httpAdditionalHeaders = [
-            "Content-Type": "application/json",
-            "Connection": "close",  // Avoid keep-alive reuse on flaky paths
-            "Accept": "application/json"
-        ]
+        config.httpAdditionalHeaders = ["Content-Type": "application/json", "Accept": "application/json"]
         
         let session = URLSession(configuration: config)
-        
-        // Make the API call with retry mechanism for -1017 errors
         self.makeAPICallWithRetry(session: session, urlRequest: urlRequest, retryCount: 0, completion: completion)
     }
     
@@ -301,10 +238,14 @@ class GoogleVisionService {
                 return
             }
             
-            // Parse JSON response
+            // Parse JSON (proxy returns Vision API shape, or { error: "..." } on proxy failure)
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    print("📊 Parsed JSON: \(json)")
+                    if let proxyError = json["error"] as? String {
+                        print("❌ Vision proxy error: \(proxyError)")
+                        completion(.failure(VisionServiceError.apiError(proxyError)))
+                        return
+                    }
                     
                     if let responses = json["responses"] as? [[String: Any]],
                        let firstResponse = responses.first {
@@ -363,7 +304,7 @@ class GoogleVisionService {
                             allBrands.append(contentsOf: webBrands)
                         }
                         
-                        // 3. Label Detection (for brand-related labels)
+                        // 3. Label Detection (for additional brand candidates)
                         if let labelAnnotations = firstResponse["labelAnnotations"] as? [[String: Any]] {
                             print("📊 Found \(labelAnnotations.count) label annotations")
                             
@@ -374,22 +315,28 @@ class GoogleVisionService {
                                     return nil
                                 }
                                 
-                                // Filter for brand-related terms
-                                let brandKeywords = ["brand", "logo", "company", "corporation", "organization"]
-                                let isBrandRelated = brandKeywords.contains { keyword in
-                                    description.lowercased().contains(keyword)
+                                // Treat short, capitalized labels as potential brands
+                                // (e.g. "Nike", "Apple", "Adidas").
+                                let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
+                                let words = trimmed.components(separatedBy: .whitespacesAndNewlines)
+                                
+                                guard words.count <= 3 else { return nil }
+                                
+                                // Require at least one word that looks like a proper noun
+                                let hasProperNoun = words.contains { word in
+                                    guard let first = word.first else { return false }
+                                    return first.isUppercase && word.allSatisfy { $0.isLetter }
                                 }
                                 
-                                if isBrandRelated {
-                                    print("🏷️ Label Brand: \(description) (confidence: \(Int(score * 100))%)")
-                                    
-                                    return BrandDetectionResult(
-                                        brandName: description,
-                                        confidence: score,
-                                        boundingBox: nil
-                                    )
-                                }
-                                return nil
+                                guard hasProperNoun else { return nil }
+                                
+                                print("🏷️ Label Brand Candidate: \(description) (confidence: \(Int(score * 100))%)")
+                                
+                                return BrandDetectionResult(
+                                    brandName: description,
+                                    confidence: score,
+                                    boundingBox: nil
+                                )
                             }
                             allBrands.append(contentsOf: labelBrands)
                         }
@@ -405,7 +352,7 @@ class GoogleVisionService {
                             let textBrands = textAnnotations.compactMap { annotation -> BrandDetectionResult? in
                                 guard let description = annotation["description"] as? String,
                                       let score = annotation["score"] as? Double,
-                                      score > 0.8 else { // High confidence text only
+                                      score > 0.6 else { // High confidence text only (slightly relaxed)
                                     return nil
                                 }
                                 
@@ -504,10 +451,14 @@ class GoogleVisionService {
             
             print("📊 Response data size: \(data.count) bytes")
             
-            // Parse JSON response
+            // Parse JSON (proxy returns Vision API shape, or { error: "..." } on proxy failure)
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    print("📊 Parsed JSON: \(json)")
+                    if let proxyError = json["error"] as? String {
+                        print("❌ Vision proxy error: \(proxyError)")
+                        completion(.failure(VisionServiceError.apiError(proxyError)))
+                        return
+                    }
                     
                     if let responses = json["responses"] as? [[String: Any]],
                        let firstResponse = responses.first {
@@ -519,7 +470,7 @@ class GoogleVisionService {
                             return
                         }
                         
-                        // Parse all detection types for comprehensive results
+                        // Parse all detection types (proxy may return only labelAnnotations)
                         var allBrands: [BrandDetectionResult] = []
                         var allLabels: [String] = []
                         
@@ -584,7 +535,7 @@ class GoogleVisionService {
                             }
                             allLabels.append(contentsOf: labels)
                             
-                            // Also extract brand-related labels
+                            // Also extract brand-related label candidates
                             let labelBrands = labelAnnotations.compactMap { annotation -> BrandDetectionResult? in
                                 guard let description = annotation["description"] as? String,
                                       let score = annotation["score"] as? Double,
@@ -592,22 +543,25 @@ class GoogleVisionService {
                                     return nil
                                 }
                                 
-                                // Filter for brand-related terms
-                                let brandKeywords = ["brand", "logo", "company", "corporation", "organization"]
-                                let isBrandRelated = brandKeywords.contains { keyword in
-                                    description.lowercased().contains(keyword)
+                                let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
+                                let words = trimmed.components(separatedBy: .whitespacesAndNewlines)
+                                
+                                guard words.count <= 3 else { return nil }
+                                
+                                let hasProperNoun = words.contains { word in
+                                    guard let first = word.first else { return false }
+                                    return first.isUppercase && word.allSatisfy { $0.isLetter }
                                 }
                                 
-                                if isBrandRelated {
-                                    print("🏷️ Label Brand: \(description) (confidence: \(Int(score * 100))%)")
-                                    
-                                    return BrandDetectionResult(
-                                        brandName: description,
-                                        confidence: score,
-                                        boundingBox: nil
-                                    )
-                                }
-                                return nil
+                                guard hasProperNoun else { return nil }
+                                
+                                print("🏷️ Label Brand Candidate: \(description) (confidence: \(Int(score * 100))%)")
+                                
+                                return BrandDetectionResult(
+                                    brandName: description,
+                                    confidence: score,
+                                    boundingBox: nil
+                                )
                             }
                             allBrands.append(contentsOf: labelBrands)
                         }
@@ -623,7 +577,7 @@ class GoogleVisionService {
                             let textBrands = textAnnotations.compactMap { annotation -> BrandDetectionResult? in
                                 guard let description = annotation["description"] as? String,
                                       let score = annotation["score"] as? Double,
-                                      score > 0.8 else { // High confidence text only
+                                      score > 0.6 else { // High confidence text only (slightly relaxed)
                                     return nil
                                 }
                                 
@@ -739,30 +693,16 @@ class GoogleVisionService {
         let base64String = imageData.base64EncodedString()
         print("📊 Micro data: \(imageData.count) bytes, Base64: \(base64String.count) chars")
         
-        // Create minimal request
-        guard let url = URL(string: "https://vision.googleapis.com/v1/images:annotate?key=\(apiKey)") else {
-            completion(.failure(VisionServiceError.invalidAPIKey))
+        guard let url = URL(string: Self.visionProxyURL) else {
+            completion(.failure(VisionServiceError.apiError("Invalid proxy URL")))
             return
         }
         
-        let requestBody: [String: Any] = [
-            "requests": [
-                [
-                    "image": ["content": base64String],
-                    "features": [
-                        ["type": "LOGO_DETECTION", "maxResults": 5],
-                        ["type": "LABEL_DETECTION", "maxResults": 3],
-                        ["type": "WEB_DETECTION", "maxResults": 2],
-                        ["type": "TEXT_DETECTION", "maxResults": 5]
-                    ]
-                ]
-            ]
-        ]
+        let requestBody = visionRequestBody(base64Image: base64String)
         
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        urlRequest.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
         
         do {
             urlRequest.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
@@ -771,7 +711,7 @@ class GoogleVisionService {
             return
         }
         
-        print("🌐 Making micro API call...")
+        print("🌐 Making micro API call via proxy (full features)...")
         
         // Use same HTTP/2 configuration for micro calls
         let config = URLSessionConfiguration.ephemeral
