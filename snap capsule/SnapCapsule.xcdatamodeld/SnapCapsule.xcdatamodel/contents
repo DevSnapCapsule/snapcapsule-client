@@ -23,6 +23,7 @@
         <attribute name="isIndexed" optional="YES" attributeType="Boolean" usesScalarValueType="YES" defaultValueString="NO"/>
         <attribute name="width" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="height" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="importSource" optional="YES" attributeType="String" defaultValueString="camera"/>
         <relationship name="album" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="AlbumEntity" inverseName="images" inverseEntity="AlbumEntity"/>
         <relationship name="brands" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="BrandEntity" inverseName="image" inverseEntity="BrandEntity"/>
         <relationship name="colors" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="ColorEntity" inverseName="image" inverseEntity="ColorEntity"/>
@@ -33,22 +34,27 @@
     </entity>
     <entity name="ColorEntity" representedClassName="ColorEntity" syncable="YES" codeGenerationType="class">
         <attribute name="name" optional="NO" attributeType="String" defaultValueString=""/>
+        <attribute name="confidence" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <relationship name="image" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ImageEntity" inverseName="colors" inverseEntity="ImageEntity"/>
     </entity>
     <entity name="FaceEntity" representedClassName="FaceEntity" syncable="YES" codeGenerationType="class">
         <attribute name="faceType" optional="NO" attributeType="String" defaultValueString=""/>
+        <attribute name="confidence" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <relationship name="image" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ImageEntity" inverseName="faces" inverseEntity="ImageEntity"/>
     </entity>
     <entity name="LabelEntity" representedClassName="LabelEntity" syncable="YES" codeGenerationType="class">
         <attribute name="name" optional="NO" attributeType="String" defaultValueString=""/>
+        <attribute name="confidence" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <relationship name="image" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ImageEntity" inverseName="labels" inverseEntity="ImageEntity"/>
     </entity>
     <entity name="ObjectEntity" representedClassName="ObjectEntity" syncable="YES" codeGenerationType="class">
         <attribute name="name" optional="NO" attributeType="String" defaultValueString=""/>
+        <attribute name="confidence" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <relationship name="image" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ImageEntity" inverseName="objects" inverseEntity="ImageEntity"/>
     </entity>
     <entity name="SceneEntity" representedClassName="SceneEntity" syncable="YES" codeGenerationType="class">
         <attribute name="name" optional="NO" attributeType="String" defaultValueString=""/>
+        <attribute name="confidence" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <relationship name="image" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ImageEntity" inverseName="scenes" inverseEntity="ImageEntity"/>
     </entity>
     <entity name="BrandEntity" representedClassName="BrandEntity" syncable="YES" codeGenerationType="class">

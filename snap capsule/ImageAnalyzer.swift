@@ -2,14 +2,25 @@ import Foundation
 import Vision
 import UIKit
 
+struct DetectedTag: Equatable {
+    let name: String
+    let confidence: Double
+}
+
+/// A dominant color with coverage-based confidence (fraction of pixels, 0...1).
+struct ColorDetection: Equatable {
+    let name: String
+    let confidence: Double
+}
+
 struct ImageMetadata {
     let imageId: UUID
     let timestamp: Date
-    let labels: [String]
-    let colors: [String]
-    let objects: [String]
-    let scenes: [String]
-    let faces: [String]
+    let labels: [DetectedTag]
+    let colors: [ColorDetection]
+    let objects: [DetectedTag]
+    let scenes: [DetectedTag]
+    let faces: [DetectedTag]
     let brands: [BrandDetectionResult]
     let searchableText: String
     let productInfo: ProductInfo
@@ -18,9 +29,23 @@ struct ImageMetadata {
 class ImageAnalyzer {
     static let shared = ImageAnalyzer()
     
+    /// Apple on-device image classification: minimum confidence to accept a tag.
+    private static let classificationConfidenceThreshold: Float = 0.72
+    /// OCR: minimum confidence per line (when available).
+    private static let textRecognitionConfidenceThreshold: Float = 0.78
+    
+    /// Color must cover at least this fraction of pixels to be listed (achromatic).
+    private static let minAchromaticCoverage = 0.055
+    /// Chromatic colors need stronger evidence (avoids noise on dark / flat images).
+    private static let minChromaticCoverage = 0.088
+    /// At most this many distinct colors per image in metadata.
+    private static let maxColorTags = 3
+    
     private init() {}
     
     func analyzeImage(_ image: UIImage, completion: @escaping (ImageMetadata) -> Void) {
+        let image = image.normalizedForImageProcessing()
+        
         func makeFallbackMetadata() -> ImageMetadata {
             let emptyProductInfo = ProductAnalyzer.shared.extractProductInfo(
                 from: [],
@@ -43,122 +68,155 @@ class ImageAnalyzer {
             )
         }
         
-        guard let cgImage = image.cgImage else {
-            // Ensure callers always receive a completion to avoid hangs.
+        guard image.cgImage != nil else {
             completion(makeFallbackMetadata())
             return
         }
         
-        // Resize image for optimal processing and API efficiency
         let optimizedImage = resizeImageForAnalysis(image)
         guard let optimizedCGImage = optimizedImage.cgImage else {
             completion(makeFallbackMetadata())
             return
         }
         
-        var labels: Set<String> = []
-        var objects: Set<String> = []
-        var scenes: Set<String> = []
-        var faces: Set<String> = []
-        var colors: Set<String> = []
+        var labelsByKey: [String: DetectedTag] = [:]
+        var objectsByKey: [String: DetectedTag] = [:]
+        var scenesByKey: [String: DetectedTag] = [:]
+        var facesByKey: [String: DetectedTag] = [:]
         var brands: [BrandDetectionResult] = []
+        
+        func normalizedKey(_ text: String) -> String {
+            text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
+        
+        func upsert(_ tag: DetectedTag, into store: inout [String: DetectedTag]) {
+            let trimmed = tag.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            let normalized = normalizedKey(trimmed)
+            let sanitized = DetectedTag(name: trimmed, confidence: tag.confidence)
+            if let existing = store[normalized] {
+                if sanitized.confidence > existing.confidence {
+                    store[normalized] = sanitized
+                }
+            } else {
+                store[normalized] = sanitized
+            }
+        }
         
         let group = DispatchGroup()
         
-        // Detect objects and scenes
         group.enter()
         let classificationRequest = VNClassifyImageRequest { request, error in
             defer { group.leave() }
             guard let results = request.results as? [VNClassificationObservation] else { return }
             
-            for result in results {
-                if result.confidence > 0.5 {
-                    if result.identifier.contains("scene") {
-                        scenes.insert(result.identifier)
-                    } else {
-                        objects.insert(result.identifier)
-                    }
+            let aboveThreshold = results
+                .filter { $0.confidence >= Self.classificationConfidenceThreshold }
+                .sorted { $0.confidence > $1.confidence }
+            
+            var objectCount = 0
+            var sceneCount = 0
+            let maxObjects = 5
+            let maxScenes = 4
+            
+            for result in aboveThreshold {
+                if result.identifier.contains("scene") {
+                    guard sceneCount < maxScenes else { continue }
+                    upsert(
+                        DetectedTag(name: result.identifier, confidence: Double(result.confidence)),
+                        into: &scenesByKey
+                    )
+                    sceneCount += 1
+                } else {
+                    guard objectCount < maxObjects else { continue }
+                    upsert(
+                        DetectedTag(name: result.identifier, confidence: Double(result.confidence)),
+                        into: &objectsByKey
+                    )
+                    objectCount += 1
                 }
             }
         }
         
-        // Detect faces
         group.enter()
         let faceRequest = VNDetectFaceRectanglesRequest { request, error in
             defer { group.leave() }
             guard let results = request.results as? [VNFaceObservation] else { return }
-            
-            faces.insert(results.isEmpty ? "no person" : "person")
+            guard let strongestFace = results.max(by: { $0.confidence < $1.confidence }) else { return }
+            upsert(
+                DetectedTag(name: "Face", confidence: Double(strongestFace.confidence)),
+                into: &facesByKey
+            )
         }
         
-        // Detect text
         group.enter()
         let textRequest = VNRecognizeTextRequest { request, error in
             defer { group.leave() }
             guard let results = request.results as? [VNRecognizedTextObservation] else { return }
             
             for result in results {
-                if let text = result.topCandidates(1).first?.string {
-                    labels.insert(text)
+                if let candidate = result.topCandidates(1).first {
+                    if candidate.confidence >= Self.textRecognitionConfidenceThreshold {
+                        upsert(
+                            DetectedTag(name: candidate.string, confidence: Double(candidate.confidence)),
+                            into: &labelsByKey
+                        )
+                    }
                 }
             }
         }
         
-        // Detect logos and labels using Google Cloud Vision API with optimized image
         group.enter()
-        var visionLabels: [String] = []
         GoogleVisionService.shared.detectLabelsAndLogos(in: optimizedImage) { result in
             defer { group.leave() }
             switch result {
             case .success(let (detectedBrands, detectedLabels)):
                 brands = detectedBrands
-                visionLabels = detectedLabels
-                // Add vision labels to the labels set
                 for label in detectedLabels {
-                    labels.insert(label)
+                    upsert(label, into: &labelsByKey)
                 }
-            case .failure(let error):
-                // Handle logo detection error silently
+            case .failure:
                 brands = []
-                visionLabels = []
             }
         }
         
-        // Analyze colors
         let dominantColors = analyzeDominantColors(in: image)
-        colors = Set(dominantColors)
         
         let handler = VNImageRequestHandler(cgImage: optimizedCGImage, options: [:])
         try? handler.perform([classificationRequest, faceRequest, textRequest])
         
         group.notify(queue: .main) {
-            // Combine all text for searching, including brand names
+            let labels = labelsByKey.values.sorted { $0.confidence > $1.confidence }
+            let objects = objectsByKey.values.sorted { $0.confidence > $1.confidence }
+            let scenes = scenesByKey.values.sorted { $0.confidence > $1.confidence }
+            let faces = facesByKey.values.sorted { $0.confidence > $1.confidence }
+            let colorNames = Set(dominantColors.map(\.name))
             let brandNames = brands.map { $0.brandName }
-            let searchableText = (labels.union(objects).union(scenes).union(faces).union(colors).union(Set(brandNames)))
-                .joined(separator: " ")
+            let searchableText = (
+                Set(labels.map(\.name))
+                    .union(Set(objects.map(\.name)))
+                    .union(Set(scenes.map(\.name)))
+                    .union(Set(faces.map(\.name)))
+                    .union(colorNames)
+                    .union(Set(brandNames))
+            ).joined(separator: " ")
             
-            // Extract product information (gender, brand, product type)
-            // Use labels from both Vision framework and Google Vision API
-            let allLabelsArray = Array(labels)
+            let allLabelsArray = labels.map(\.name)
             let productInfo = ProductAnalyzer.shared.extractProductInfo(
                 from: allLabelsArray,
-                objects: Array(objects),
+                objects: objects.map(\.name),
                 brands: brands,
-                faces: Array(faces)
+                faces: faces.map(\.name)
             )
-            
-            print("🔍 Product Info extracted - Gender: \(productInfo.gender ?? "nil"), Brand: \(productInfo.brand ?? "nil"), Product: \(productInfo.product ?? "nil")")
-            print("🔍 Labels available: \(allLabelsArray)")
-            print("🔍 Brands available: \(brands.map { $0.brandName })")
             
             let metadata = ImageMetadata(
                 imageId: UUID(),
                 timestamp: Date(),
-                labels: Array(labels),
-                colors: Array(colors),
-                objects: Array(objects),
-                scenes: Array(scenes),
-                faces: Array(faces),
+                labels: labels,
+                colors: dominantColors,
+                objects: objects,
+                scenes: scenes,
+                faces: faces,
                 brands: brands,
                 searchableText: searchableText,
                 productInfo: productInfo
@@ -168,12 +226,15 @@ class ImageAnalyzer {
         }
     }
     
-    private func analyzeDominantColors(in image: UIImage) -> [String] {
+    // MARK: - Dominant colors (coverage = confidence)
+    
+    private func analyzeDominantColors(in image: UIImage) -> [ColorDetection] {
         guard let cgImage = image.cgImage else { return [] }
         
         let width = cgImage.width
         let height = cgImage.height
         let totalPixels = width * height
+        guard totalPixels > 0 else { return [] }
         
         guard let context = CGContext(
             data: nil,
@@ -190,91 +251,123 @@ class ImageAnalyzer {
         guard let pixelData = context.data else { return [] }
         
         var colorCounts: [String: Int] = [:]
+        var chromaticFlags: [String: Bool] = [:]
+        
         let pointer = pixelData.bindMemory(to: UInt8.self, capacity: width * height * 4)
         
         for i in stride(from: 0, to: totalPixels * 4, by: 4) {
-            let red = Double(pointer[i]) / 255.0
-            let green = Double(pointer[i + 1]) / 255.0
-            let blue = Double(pointer[i + 2]) / 255.0
+            let r = Double(pointer[i]) / 255.0
+            let g = Double(pointer[i + 1]) / 255.0
+            let b = Double(pointer[i + 2]) / 255.0
             
-            let colorName = getColorName(red: red, green: green, blue: blue)
-            colorCounts[colorName, default: 0] += 1
+            let (name, isChromatic) = classifyPixelColor(r: r, g: g, b: b)
+            colorCounts[name, default: 0] += 1
+            chromaticFlags[name] = isChromatic
         }
         
-        // Return top 5 dominant colors
-        return Array(colorCounts.sorted { $0.value > $1.value }.prefix(5).map { $0.key })
+        let total = Double(totalPixels)
+        var candidates: [(name: String, confidence: Double, isChromatic: Bool)] = []
+        
+        for (name, count) in colorCounts {
+            let coverage = Double(count) / total
+            let isChromatic = chromaticFlags[name] ?? false
+            let minRequired = isChromatic ? Self.minChromaticCoverage : Self.minAchromaticCoverage
+            guard coverage >= minRequired else { continue }
+            candidates.append((name, coverage, isChromatic))
+        }
+        
+        candidates.sort { $0.confidence > $1.confidence }
+        
+        return candidates.prefix(Self.maxColorTags).map {
+            ColorDetection(name: $0.name, confidence: $0.confidence)
+        }
     }
     
-    private func getColorName(red: Double, green: Double, blue: Double) -> String {
-        let colors: [(name: String, r: Double, g: Double, b: Double)] = [
-            ("red", 1.0, 0.0, 0.0),
-            ("green", 0.0, 1.0, 0.0),
-            ("blue", 0.0, 0.0, 1.0),
-            ("yellow", 1.0, 1.0, 0.0),
-            ("purple", 0.5, 0.0, 0.5),
-            ("orange", 1.0, 0.65, 0.0),
-            ("pink", 1.0, 0.75, 0.8),
-            ("brown", 0.65, 0.16, 0.16),
-            ("black", 0.0, 0.0, 0.0),
-            ("white", 1.0, 1.0, 1.0),
-            ("gray", 0.5, 0.5, 0.5)
-        ]
+    /// Per-pixel label using luminance and saturation so dark / noisy frames map to black/gray, not random hues.
+    private func classifyPixelColor(r: Double, g: Double, b: Double) -> (name: String, isChromatic: Bool) {
+        let maxv = max(r, g, b)
+        let minv = min(r, g, b)
+        let delta = maxv - minv
+        let saturation = maxv > 1e-4 ? delta / maxv : 0
         
-        var minDistance = Double.infinity
-        var closestColor = "unknown"
-        
-        for color in colors {
-            let distance = sqrt(
-                pow(red - color.r, 2) +
-                pow(green - color.g, 2) +
-                pow(blue - color.b, 2)
-            )
-            
-            if distance < minDistance {
-                minDistance = distance
-                closestColor = color.name
-            }
+        if maxv < 0.085 {
+            return ("black", false)
         }
         
-        return closestColor
+        if saturation < 0.10 {
+            if maxv > 0.93 {
+                return ("white", false)
+            }
+            return ("gray", false)
+        }
+        
+        let hue = rgbToHueDegrees(r: r, g: g, b: b)
+        
+        if maxv < 0.22 && hue >= 15 && hue < 50 {
+            return ("brown", true)
+        }
+        
+        switch hue {
+        case 0..<18, 345...360:
+            return ("red", true)
+        case 18..<45:
+            return ("orange", true)
+        case 45..<75:
+            return ("yellow", true)
+        case 75..<165:
+            return ("green", true)
+        case 165..<255:
+            return ("blue", true)
+        case 255..<290:
+            return ("purple", true)
+        case 290..<345:
+            return ("pink", true)
+        default:
+            return ("red", true)
+        }
+    }
+    
+    /// HSV hue in 0...360 (simplified, for bucket naming only).
+    private func rgbToHueDegrees(r: Double, g: Double, b: Double) -> Double {
+        let maxc = max(r, g, b)
+        let minc = min(r, g, b)
+        let d = maxc - minc
+        if d < 1e-6 { return 0 }
+        let h: Double
+        if maxc == r {
+            h = 60 * (((g - b) / d).truncatingRemainder(dividingBy: 6))
+        } else if maxc == g {
+            h = 60 * (((b - r) / d) + 2)
+        } else {
+            h = 60 * (((r - g) / d) + 4)
+        }
+        return h < 0 ? h + 360 : h
     }
     
     // MARK: - Image Optimization for API Efficiency
+    
     private func resizeImageForAnalysis(_ image: UIImage) -> UIImage {
-        let maxDimension: CGFloat = 1200  // Increased for better logo detection (was 800)
+        let maxDimension: CGFloat = 1200
         let originalSize = image.size
         
-        print("🖼️ Original image size: \(originalSize)")
-        
-        // Calculate new size maintaining aspect ratio
         let aspectRatio = originalSize.width / originalSize.height
         var newSize: CGSize
         
         if originalSize.width > originalSize.height {
-            // Landscape
             newSize = CGSize(width: maxDimension, height: maxDimension / aspectRatio)
         } else {
-            // Portrait or square
             newSize = CGSize(width: maxDimension * aspectRatio, height: maxDimension)
         }
         
-        print("📐 Calculated new size: \(newSize)")
-        
-        // Ensure we don't upscale small images
         if originalSize.width <= maxDimension && originalSize.height <= maxDimension {
-            print("✅ Image already small enough, no resize needed")
             return image
         }
         
-        // Create resized image with high quality
         UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
         image.draw(in: CGRect(origin: .zero, size: newSize))
         let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
         
-        let finalImage = resizedImage ?? image
-        print("✅ Final resized image size: \(finalImage.size)")
-        
-        return finalImage
+        return resizedImage ?? image
     }
-} 
+}

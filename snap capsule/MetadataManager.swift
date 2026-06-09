@@ -33,35 +33,40 @@ class MetadataManager {
         // Save labels
         metadata.labels.forEach { label in
             let labelEntity = LabelEntity(context: context)
-            labelEntity.name = label
+            labelEntity.name = label.name
+            labelEntity.confidence = label.confidence
             labelEntity.image = imageEntity
         }
         
-        // Save colors
+        // Save colors (confidence = fraction of image pixels for that color)
         metadata.colors.forEach { color in
             let colorEntity = ColorEntity(context: context)
-            colorEntity.name = color
+            colorEntity.name = color.name
+            colorEntity.confidence = color.confidence
             colorEntity.image = imageEntity
         }
         
         // Save objects
         metadata.objects.forEach { object in
             let objectEntity = ObjectEntity(context: context)
-            objectEntity.name = object
+            objectEntity.name = object.name
+            objectEntity.confidence = object.confidence
             objectEntity.image = imageEntity
         }
         
         // Save scenes
         metadata.scenes.forEach { scene in
             let sceneEntity = SceneEntity(context: context)
-            sceneEntity.name = scene
+            sceneEntity.name = scene.name
+            sceneEntity.confidence = scene.confidence
             sceneEntity.image = imageEntity
         }
         
         // Save faces
         metadata.faces.forEach { face in
             let faceEntity = FaceEntity(context: context)
-            faceEntity.faceType = face
+            faceEntity.faceType = face.name
+            faceEntity.confidence = face.confidence
             faceEntity.image = imageEntity
         }
         

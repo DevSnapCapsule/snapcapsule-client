@@ -10,6 +10,8 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var networkMonitor: NetworkMonitor
     @State private var isShowingCamera = false
+    @State private var isShowingGalleryImport = false
+    @State private var isShowingVoiceSearch = false
     @State private var searchText = ""
     @State private var searchResults: [ImageSearchResult] = []
     @State private var selectedTab = 1
@@ -68,8 +70,16 @@ struct ContentView: View {
                             FooterMenuItem(icon: "camera.fill", title: "Snap Lens", isSelected: selectedTab == 0) {
                                 isShowingCamera = true
                             }
+
+                            FooterMenuItem(icon: "photo.badge.plus", title: "Import", isSelected: false) {
+                                isShowingGalleryImport = true
+                            }
                             
-                            FooterMenuItem(icon: "photo.stack.fill", title: "Capsule Repository", isSelected: selectedTab == 1) {
+                            FooterMenuItem(icon: "waveform.circle.fill", title: "Voice", isSelected: false) {
+                                isShowingVoiceSearch = true
+                            }
+                            
+                            FooterMenuItem(icon: "photo.stack.fill", title: "Capsules", isSelected: selectedTab == 1) {
                                 selectedTab = 1
                             }
                             
@@ -144,12 +154,20 @@ struct ContentView: View {
                 selectedTab = 1
             })
         }
+        .sheet(isPresented: $isShowingGalleryImport) {
+            GalleryPhotoImportView(onImportCompleted: {
+                selectedTab = 1
+            })
+        }
+        .fullScreenCover(isPresented: $isShowingVoiceSearch) {
+            VoiceImageSearchView()
+        }
         .onAppear {
             if !networkMonitor.isConnected {
                 showNetworkAlert = true
             }
         }
-        .onChange(of: networkMonitor.isConnected) { isConnected in
+        .onChange(of: networkMonitor.isConnected) { _, isConnected in
             if !isConnected {
                 showNetworkAlert = true
             }

@@ -85,6 +85,7 @@ class ImageStorageManager {
     }
     
     private func compressAndDownscale(_ image: UIImage) -> UIImage {
+        let image = image.normalizedForImageProcessing()
         let maxDimension: CGFloat = 1920 // Max dimension for storage
         let originalSize = image.size
         

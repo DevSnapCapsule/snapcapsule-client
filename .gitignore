@@ -136,6 +136,9 @@ Temporary Items
 .rbenv/
 .cursor/
 
+# Local tooling (e.g. downloaded gcloud SDK for deploy scripts)
+.tools/
+
 # Local images / assets not needed in repo
 images/
 appstore.png

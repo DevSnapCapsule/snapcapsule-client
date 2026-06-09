@@ -34,40 +34,44 @@ cd "snap capsule"
 pod install
 ```
 
-### 3. Configure API Key
+### 3. Configure API Access
 
-The app requires a Google Cloud Vision API key for image analysis. You can provide it in one of the following ways:
+Photo analysis (Vision) and voice search (Gemini) call **Cloud Run proxies** by default, so **no API keys are required in the iOS app** for normal use. Keys live in Google Secret Manager on the server.
 
-#### Option A: Environment Variable (Recommended for CI/CD)
+Optional overrides for local development or a custom proxy URL:
+
+#### Option A: Environment Variables (CI/CD or Xcode scheme)
 
 ```bash
-export GOOGLE_VISION_API_KEY=your_api_key_here
+export GEMINI_PROXY_URL=https://your-gemini-proxy.run.app
+export GEMINI_API_KEY=your_gemini_api_key_here   # direct Gemini fallback only
 ```
 
-#### Option B: .env File (Recommended for Local Development)
+Add the same variables under **Product → Scheme → Edit Scheme → Run → Arguments → Environment Variables** when running from Xcode.
 
-1. Create a `.env` file in the project root:
+#### Option B: .env File (local reference)
+
 ```bash
-touch .env
+cp .env.example .env
 ```
 
-2. Add your API key:
-```
-GOOGLE_VISION_API_KEY=your_api_key_here
-```
+The `.env` file is gitignored. Values there are **not** read automatically by the iOS app unless you also set them in Xcode or `Secrets.plist`.
 
-**Note**: The `.env` file is gitignored and will not be committed to version control.
+#### Option C: Secrets.plist (direct Gemini fallback for voice search)
 
-#### Option C: Secrets.plist (Legacy, Deprecated)
-
-1. Copy the example file:
 ```bash
 cp "snap capsule/Secrets.plist.example" "snap capsule/Secrets.plist"
 ```
 
-2. Add your API key to `Secrets.plist`
+Set `GeminiAPIKey` only if you want voice search to call Gemini directly instead of the Cloud Run proxy. `Secrets.plist` is gitignored.
 
-**Note**: `Secrets.plist` is also gitignored for security.
+#### Option D: Config.plist (custom proxy URL)
+
+```bash
+cp "snap capsule/Config.plist.example" "snap capsule/Config.plist"
+```
+
+Set `GeminiProxyURL` if your deployed proxy URL differs from the app default. See `backend/gemini-proxy/README.md` for deploy steps.
 
 ### 4. Open the Workspace
 

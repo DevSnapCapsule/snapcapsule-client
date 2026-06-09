@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreData
+import Vision
 
 struct CapsuleRepositoryView: View {
     @StateObject private var indexingQueue = IndexingQueue.shared
@@ -46,7 +47,7 @@ struct CapsuleRepositoryView: View {
         .onAppear {
             loadAlbums()
         }
-        .onChange(of: indexingQueue.isIndexing) { isIndexing in
+        .onChange(of: indexingQueue.isIndexing) { _, isIndexing in
             // When indexing finishes, refresh albums so previews update
             if !isIndexing {
                 loadAlbums()
@@ -221,7 +222,7 @@ struct AlbumCard: View {
         .onAppear {
             loadImages()
         }
-        .onChange(of: indexingQueue.isIndexing) { isIndexing in
+        .onChange(of: indexingQueue.isIndexing) { _, isIndexing in
             // When indexing finishes, refresh the images used for the capsule preview thumbnails
             if !isIndexing {
                 loadImages()
@@ -230,7 +231,7 @@ struct AlbumCard: View {
         .sheet(isPresented: $showingImages) {
             AlbumImagesView(album: album, onMaxLimitReached: onMaxLimitReached)
         }
-        .onChange(of: showingImages) { isShowing in
+        .onChange(of: showingImages) { _, isShowing in
             if !isShowing {
                 // Reload images when sheet is dismissed (after deletion)
                 loadImages()
@@ -300,6 +301,140 @@ struct ThumbnailView: View {
     }
 }
 
+private struct CapsuleImagePagerToken: Identifiable {
+    let id = UUID()
+    let initialObjectID: NSManagedObjectID
+}
+
+private struct CapsuleLoaderOverlay: View {
+    let title: String
+    
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .tint(.white)
+                .scaleEffect(1.1)
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(0.92))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+    }
+}
+
+private struct CapsuleImagePagerView: View {
+    let album: AlbumEntity
+    let initialObjectID: NSManagedObjectID
+    var onAlbumImagesChanged: () -> Void
+    var onDismiss: () -> Void
+    
+    @State private var images: [ImageEntity] = []
+    @State private var selection: NSManagedObjectID?
+    @State private var didSetInitialSelection = false
+    @State private var hasLoadedImages = false
+    @State private var zoomedImageIDs: Set<NSManagedObjectID> = []
+    
+    var body: some View {
+        Group {
+            if !hasLoadedImages {
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    CapsuleLoaderOverlay(title: "Opening photo")
+                }
+            } else if images.isEmpty {
+                ContentUnavailableView(
+                    "No Photos",
+                    systemImage: "photo.on.rectangle.angled",
+                    description: Text("This capsule has no images.")
+                )
+                .onAppear {
+                    onAlbumImagesChanged()
+                    onDismiss()
+                }
+            } else {
+                TabView(selection: $selection) {
+                    ForEach(images, id: \.objectID) { img in
+                        ImageDetailView(
+                            image: img,
+                            dismissAfterDelete: false,
+                            onZoomStateChanged: { isZoomed in
+                                if isZoomed {
+                                    zoomedImageIDs.insert(img.objectID)
+                                } else {
+                                    zoomedImageIDs.remove(img.objectID)
+                                }
+                            },
+                            onRequestAdjacentPage: { delta in
+                                navigateToAdjacentPage(delta: delta)
+                            },
+                            onDelete: {
+                                refreshAfterPageDelete(deletedObjectID: img.objectID)
+                            }
+                        )
+                        .tag(Optional(img.objectID))
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .scrollDisabled(isCurrentPageZoomed)
+            }
+        }
+        .background(Color.black)
+        .onAppear {
+            reloadImages()
+            hasLoadedImages = true
+            if !didSetInitialSelection {
+                selection = images.first(where: { $0.objectID == initialObjectID })?.objectID
+                    ?? images.first?.objectID
+                didSetInitialSelection = true
+            }
+        }
+    }
+    
+    private func reloadImages() {
+        images = AlbumManager.shared.getImages(for: album)
+        let validIDs = Set(images.map(\.objectID))
+        zoomedImageIDs = zoomedImageIDs.intersection(validIDs)
+    }
+    
+    private var isCurrentPageZoomed: Bool {
+        guard let selection else { return false }
+        return zoomedImageIDs.contains(selection)
+    }
+    
+    private func refreshAfterPageDelete(deletedObjectID: NSManagedObjectID) {
+        onAlbumImagesChanged()
+        reloadImages()
+        if images.isEmpty {
+            onDismiss()
+            return
+        }
+        let deletedWasCurrent = selection.map { $0 == deletedObjectID } ?? false
+        let selectionStillValid = selection.map { sel in images.contains(where: { $0.objectID == sel }) } ?? false
+        if deletedWasCurrent || !selectionStillValid {
+            selection = images.first?.objectID
+        }
+    }
+    
+    /// - Parameter delta: -1 previous, +1 next (ordered like `getImages`: newest first).
+    private func navigateToAdjacentPage(delta: Int) {
+        guard let sel = selection,
+              let idx = images.firstIndex(where: { $0.objectID == sel }) else { return }
+        let nextIndex = idx + delta
+        guard images.indices.contains(nextIndex) else { return }
+        withAnimation(.smooth(duration: 0.32)) {
+            selection = images[nextIndex].objectID
+        }
+    }
+}
+
 struct AlbumImagesView: View {
     let album: AlbumEntity
     let onMaxLimitReached: (String) -> Void
@@ -309,6 +444,13 @@ struct AlbumImagesView: View {
     @State private var showDeleteAllConfirmation = false
     @State private var isDeletingAll = false
     @State private var deleteAllError: String?
+    @State private var pagerToken: CapsuleImagePagerToken?
+    @State private var isMultiSelectMode = false
+    @State private var deletionSelection: Set<NSManagedObjectID> = []
+    @State private var showBulkDeleteConfirmation = false
+    @State private var isBulkDeleting = false
+    @State private var bulkDeleteError: String?
+    @State private var isShowingGalleryImport = false
     
     var body: some View {
         NavigationView {
@@ -323,11 +465,25 @@ struct AlbumImagesView: View {
                             .font(.headline)
                             .foregroundColor(.primary)
                         
-                        Text("Use the camera to add photos to this capsule.")
+                        Text("Use the camera or import one photo at a time from your library.")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 32)
+
+                        Button {
+                            isShowingGalleryImport = true
+                        } label: {
+                            Label("Import from Photos", systemImage: "photo.badge.plus")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 18)
+                                .padding(.vertical, 10)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(Color.blue.opacity(0.12))
+                                )
+                        }
+                        .padding(.top, 4)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.top, 80)
@@ -338,19 +494,38 @@ struct AlbumImagesView: View {
                         GridItem(.flexible(), spacing: 12)
                     ], spacing: 12) {
                         ForEach(images, id: \.id) { image in
-                            ImageThumbnailCard(image: image, onDelete: {
-                                loadImages()
-                            })
+                            ImageThumbnailCard(
+                                image: image,
+                                isMultiSelectMode: isMultiSelectMode,
+                                isSelectedForDeletion: deletionSelection.contains(image.objectID),
+                                onTap: {
+                                    if isMultiSelectMode {
+                                        toggleDeletionSelection(for: image.objectID)
+                                    } else {
+                                        pagerToken = CapsuleImagePagerToken(initialObjectID: image.objectID)
+                                    }
+                                },
+                                onLongPressEnterMultiSelect: {
+                                    enterMultiSelect(selecting: image.objectID)
+                                },
+                                onDelete: {
+                                    loadImages()
+                                }
+                            )
                         }
                     }
                     .padding()
                 }
             }
-            .navigationTitle(album.name ?? "Album")
+            .navigationTitle(isMultiSelectMode ? "Select Photos" : (album.name ?? "Album"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    if !images.isEmpty {
+                    if isMultiSelectMode {
+                        Button("Cancel") {
+                            exitMultiSelectMode()
+                        }
+                    } else if !images.isEmpty {
                         Button(action: {
                             showDeleteAllConfirmation = true
                         }) {
@@ -365,15 +540,32 @@ struct AlbumImagesView: View {
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        presentationMode.wrappedValue.dismiss()
+                    if isMultiSelectMode {
+                        Button(role: .destructive) {
+                            guard !deletionSelection.isEmpty else { return }
+                            showBulkDeleteConfirmation = true
+                        } label: {
+                            Text(deletionSelection.isEmpty ? "Delete" : "Delete (\(deletionSelection.count))")
+                        }
+                        .disabled(deletionSelection.isEmpty || isBulkDeleting)
+                    } else {
+                        Button {
+                            isShowingGalleryImport = true
+                        } label: {
+                            Image(systemName: "photo.badge.plus")
+                        }
+                        .accessibilityLabel("Import one photo from library")
+
+                        Button("Done") {
+                            presentationMode.wrappedValue.dismiss()
+                        }
                     }
                 }
             }
             .onAppear {
                 loadImages()
             }
-            .onChange(of: indexingQueue.isIndexing) { isIndexing in
+            .onChange(of: indexingQueue.isIndexing) { _, isIndexing in
                 // When indexing completes, reload images so newly indexed photos appear
                 if !isIndexing {
                     loadImages()
@@ -394,6 +586,79 @@ struct AlbumImagesView: View {
             } message: {
                 if let error = deleteAllError {
                     Text(error)
+                }
+            }
+            .alert("Delete Selected Photos", isPresented: $showBulkDeleteConfirmation) {
+                Button("Cancel", role: .cancel) { }
+                Button("Delete", role: .destructive) {
+                    deleteSelectedImages()
+                }
+            } message: {
+                Text("Delete \(deletionSelection.count) photo\(deletionSelection.count == 1 ? "" : "s")? This cannot be undone.")
+            }
+            .alert("Error", isPresented: .constant(bulkDeleteError != nil)) {
+                Button("OK", role: .cancel) {
+                    bulkDeleteError = nil
+                }
+            } message: {
+                if let error = bulkDeleteError {
+                    Text(error)
+                }
+            }
+            .sheet(item: $pagerToken) { token in
+                CapsuleImagePagerView(
+                    album: album,
+                    initialObjectID: token.initialObjectID,
+                    onAlbumImagesChanged: loadImages,
+                    onDismiss: { pagerToken = nil }
+                )
+            }
+            .sheet(isPresented: $isShowingGalleryImport) {
+                GalleryPhotoImportView(onImportCompleted: loadImages)
+            }
+            .overlay {
+                if isDeletingAll || isBulkDeleting {
+                    ZStack {
+                        Color.black.opacity(0.28)
+                            .ignoresSafeArea()
+                        CapsuleLoaderOverlay(title: "Deleting photos")
+                    }
+                    .transition(.opacity)
+                }
+            }
+        }
+    }
+    
+    private func enterMultiSelect(selecting objectID: NSManagedObjectID) {
+        isMultiSelectMode = true
+        deletionSelection = [objectID]
+    }
+    
+    private func exitMultiSelectMode() {
+        isMultiSelectMode = false
+        deletionSelection = []
+    }
+    
+    private func toggleDeletionSelection(for objectID: NSManagedObjectID) {
+        if deletionSelection.contains(objectID) {
+            deletionSelection.remove(objectID)
+        } else {
+            deletionSelection.insert(objectID)
+        }
+    }
+    
+    private func deleteSelectedImages() {
+        let toDelete = images.filter { deletionSelection.contains($0.objectID) }
+        guard !toDelete.isEmpty else { return }
+        isBulkDeleting = true
+        AlbumManager.shared.deleteImages(toDelete) { success, error in
+            DispatchQueue.main.async {
+                isBulkDeleting = false
+                if success {
+                    exitMultiSelectMode()
+                    loadImages()
+                } else {
+                    bulkDeleteError = error ?? "Failed to delete photos"
                 }
             }
         }
@@ -423,196 +688,973 @@ struct AlbumImagesView: View {
 
 struct ImageThumbnailCard: View {
     let image: ImageEntity
+    var isMultiSelectMode: Bool = false
+    var isSelectedForDeletion: Bool = false
+    let onTap: () -> Void
+    var onLongPressEnterMultiSelect: (() -> Void)? = nil
     let onDelete: (() -> Void)?
-    @State private var showingDetail = false
+    @State private var suppressNextTapFromLongPress = false
     
     var body: some View {
         Button(action: {
-            showingDetail = true
+            if suppressNextTapFromLongPress {
+                suppressNextTapFromLongPress = false
+                return
+            }
+            onTap()
         }) {
-            Group {
-                if let filePath = image.filePath,
-                   let uiImage = ImageStorageManager.shared.loadImage(from: filePath) {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(height: 120)
-                        .clipped()
-                        .cornerRadius(12)
-                } else {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.gray.opacity(0.3))
-                        .frame(height: 120)
-                        .overlay(
-                            Image(systemName: "photo")
-                                .foregroundColor(.gray)
-                        )
+            ZStack(alignment: .topTrailing) {
+                Group {
+                    if let filePath = image.filePath,
+                       let uiImage = ImageStorageManager.shared.loadImage(from: filePath) {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(height: 120)
+                            .clipped()
+                            .cornerRadius(12)
+                    } else {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(height: 120)
+                            .overlay(
+                                Image(systemName: "photo")
+                                    .foregroundColor(.gray)
+                            )
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    if image.isFromGallery && !isMultiSelectMode {
+                        GallerySourceBadge(compact: true)
+                            .padding(6)
+                    }
+                }
+                .overlay {
+                    if isMultiSelectMode {
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(isSelectedForDeletion ? Color.blue : Color.white.opacity(0.35), lineWidth: isSelectedForDeletion ? 3 : 1)
+                    }
+                }
+                if isMultiSelectMode {
+                    Image(systemName: isSelectedForDeletion ? "checkmark.circle.fill" : "circle")
+                        .font(.title2)
+                        .foregroundStyle(isSelectedForDeletion ? Color.blue : Color.secondary.opacity(0.9))
+                        .padding(8)
                 }
             }
         }
         .buttonStyle(PlainButtonStyle())
-        .sheet(isPresented: $showingDetail) {
-            ImageDetailView(image: image, onDelete: {
-                onDelete?()
-            })
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.45)
+                .onEnded { _ in
+                    guard !isMultiSelectMode, let onLongPressEnterMultiSelect else { return }
+                    suppressNextTapFromLongPress = true
+                    onLongPressEnterMultiSelect()
+                }
+        )
+    }
+}
+
+// MARK: - Image detail AI tags (shared between detail + sheet)
+
+private struct ImageDetailAITag: Identifiable, Hashable {
+    let label: String
+    let category: String
+    /// Optional match strength (0–100) for colors and brands.
+    var confidencePercent: Int?
+    /// Optional normalized focus rectangle (0...1 in image coordinates).
+    var focusRect: CGRect?
+    
+    var id: String { "\(category.lowercased())|\(label.lowercased())" }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+    
+    static func == (lhs: ImageDetailAITag, rhs: ImageDetailAITag) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
+private struct AITagCategorySection: Identifiable {
+    let id: String
+    let title: String
+    let tags: [ImageDetailAITag]
+}
+
+/// Bottom gradient + horizontal chips so labels read as part of the photo, not a separate list below.
+private struct ImageDetailAITagsPhotoOverlay: View {
+    /// Tags shown in the horizontal strip (compact preview).
+    let stripTags: [ImageDetailAITag]
+    /// Total tags available (sheet may show more than the strip).
+    let totalTagCount: Int
+    var onViewAll: () -> Void
+    var onSelectTag: (ImageDetailAITag) -> Void
+    var selectedTagId: String?
+    
+    private var showEmptyBrandStrip: Bool {
+        stripTags.isEmpty && totalTagCount > 0
+    }
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            ZStack(alignment: .bottom) {
+                LinearGradient(
+                    colors: [
+                        .clear,
+                        .black.opacity(0.35),
+                        .black.opacity(0.72)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 200)
+                .allowsHitTesting(false)
+                
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.yellow.opacity(0.95))
+                        Text("Detected")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                        Spacer()
+                    }
+                    
+                    if stripTags.isEmpty {
+                        if showEmptyBrandStrip {
+                            Text("No brands detected in this photo.")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.88))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.vertical, 2)
+                        }
+                    } else {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(stripTags) { tag in
+                                    Button {
+                                        onSelectTag(tag)
+                                    } label: {
+                                        let isSelected = selectedTagId == tag.id
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(tag.label)
+                                                .font(.caption.weight(.medium))
+                                                .foregroundStyle(isSelected ? .black : .white)
+                                                .lineLimit(1)
+                                            if let pct = tag.confidencePercent {
+                                                Text("\(pct)%")
+                                                    .font(.caption2.weight(.semibold))
+                                                    .foregroundStyle(isSelected ? .black.opacity(0.75) : .white.opacity(0.82))
+                                            }
+                                        }
+                                        .padding(.horizontal, 11)
+                                        .padding(.vertical, 7)
+                                        .background(
+                                            Capsule()
+                                                .fill(isSelected ? .yellow.opacity(0.95) : .white.opacity(0.22))
+                                        )
+                                        .overlay(
+                                            Capsule()
+                                                .strokeBorder(isSelected ? .yellow.opacity(0.95) : .white.opacity(0.28), lineWidth: 1)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                    
+                    Button(action: onViewAll) {
+                        HStack(spacing: 6) {
+                            Text(totalTagCount > stripTags.count ? "All tags (\(totalTagCount))" : "Details & categories")
+                            Image(systemName: "chevron.up")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(.white.opacity(0.18))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("View all AI tags and categories")
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+            }
         }
     }
 }
 
+/// Translucent bottom sheet — Brand always visible; other categories behind **Other Info**.
+private struct ImageDetailAITagsSheet: View {
+    let sections: [AITagCategorySection]
+    var onSelectTag: (ImageDetailAITag) -> Void
+    var selectedTagId: String?
+    
+    @State private var showOtherInfo = false
+    
+    private var brandSection: AITagCategorySection? {
+        sections.first { $0.id.caseInsensitiveCompare("Brand") == .orderedSame }
+    }
+    
+    private var otherSections: [AITagCategorySection] {
+        sections.filter { $0.id.caseInsensitiveCompare("Brand") != .orderedSame }
+    }
+    
+    private var tagGridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 108), spacing: 10, alignment: .top)]
+    }
+    
+    @ViewBuilder
+    private func tagGrid(tags: [ImageDetailAITag]) -> some View {
+        LazyVGrid(columns: tagGridColumns, alignment: .leading, spacing: 10) {
+            ForEach(tags) { tag in
+                Button {
+                    onSelectTag(tag)
+                } label: {
+                    ImageDetailAITagSheetCard(
+                        tag: tag,
+                        isSelected: selectedTagId == tag.id
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+    
+    private func categoryBlock(_ section: AITagCategorySection) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(section.title.uppercased())
+                .font(.caption.weight(.semibold))
+                .tracking(0.6)
+                .foregroundStyle(.secondary)
+            
+            tagGrid(tags: section.tags)
+        }
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                Text("AI Tags")
+                    .font(.title2.weight(.semibold))
+                Spacer()
+            }
+            .padding(.bottom, 4)
+            
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("BRAND")
+                            .font(.caption.weight(.semibold))
+                            .tracking(0.6)
+                            .foregroundStyle(.secondary)
+                        
+                        if let brandSection, !brandSection.tags.isEmpty {
+                            tagGrid(tags: brandSection.tags)
+                        } else {
+                            Text("No brands detected for this image.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    
+                    if !otherSections.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.28)) {
+                                    showOtherInfo.toggle()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Other Info")
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                        .rotationEffect(.degrees(showOtherInfo ? 180 : 0))
+                                }
+                                .padding(.vertical, 10)
+                                .padding(.horizontal, 12)
+                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.primary.opacity(0.06)))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(showOtherInfo ? "Hide other categories" : "Show other categories")
+                            
+                            if showOtherInfo {
+                                ForEach(otherSections) { section in
+                                    categoryBlock(section)
+                                        .transition(.opacity.combined(with: .move(edge: .top)))
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.bottom, 8)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct ImageDetailAITagSheetCard: View {
+    let tag: ImageDetailAITag
+    let isSelected: Bool
+    
+    private var subtitle: String {
+        if let pct = tag.confidencePercent {
+            return tag.category == "Color" ? "~\(pct)% of image" : "\(pct)% confidence"
+        }
+        return tag.category
+    }
+    
+    private var subtitleStyle: AnyShapeStyle {
+        if tag.confidencePercent == nil {
+            return AnyShapeStyle(.tertiary)
+        }
+        return AnyShapeStyle(.secondary)
+    }
+    
+    private var cardBackgroundStyle: AnyShapeStyle {
+        if isSelected {
+            return AnyShapeStyle(Color.blue.opacity(0.14))
+        }
+        return AnyShapeStyle(.thinMaterial)
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(tag.label)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(isSelected ? .blue : .primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            Text(subtitle)
+                .font(.caption2)
+                .foregroundStyle(subtitleStyle)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(cardBackgroundStyle)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(isSelected ? Color.blue.opacity(0.65) : Color.primary.opacity(0.06), lineWidth: 1.2)
+        )
+    }
+}
+
+private struct ImageTagFocusOverlayData {
+    let tag: ImageDetailAITag
+    let normalizedRect: CGRect
+    let croppedImage: UIImage
+    let note: String?
+}
+
+private struct ImageTagFocusOverlayCard: View {
+    let data: ImageTagFocusOverlayData
+    var onClose: () -> Void
+    @State private var cropMagnification: CGFloat = 1
+    @State private var cropMagnificationBase: CGFloat = 1
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text("\(data.tag.category): \(data.tag.label)")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                Spacer(minLength: 8)
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close tag preview")
+            }
+            
+            GeometryReader { geo in
+                Image(uiImage: data.croppedImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .scaleEffect(cropMagnification)
+                    .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.88), value: cropMagnification)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        MagnificationGesture()
+                            .onChanged { value in
+                                cropMagnification = min(4.0, max(1.0, cropMagnificationBase * value))
+                            }
+                            .onEnded { _ in
+                                cropMagnificationBase = cropMagnification
+                                if cropMagnification <= 1.02 {
+                                    cropMagnification = 1
+                                    cropMagnificationBase = 1
+                                }
+                            }
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.accentColor.opacity(0.5), lineWidth: 1)
+                    )
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 420)
+            
+            if let note = data.note {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
+        .padding(.horizontal, 20)
+    }
+}
+
+private struct HighlightSelectionData {
+    let tag: ImageDetailAITag
+    let normalizedRect: CGRect
+    let note: String?
+}
+
 struct ImageDetailView: View {
     let image: ImageEntity
+    /// When embedded in the capsule swipe pager, deleting should refresh the pager instead of dismissing the sheet.
+    var dismissAfterDelete: Bool = true
+    var onZoomStateChanged: ((Bool) -> Void)? = nil
+    /// Capsule pager only: -1 = older photo, +1 = newer photo (`AlbumManager.getImages` order).
+    var onRequestAdjacentPage: ((Int) -> Void)? = nil
     @Environment(\.presentationMode) var presentationMode
     @State private var showDeleteConfirmation = false
     @State private var isDeleting = false
     @State private var deleteError: String?
+    @State private var showAITagsSheet = false
+    @State private var showExploreProducts = false
+    /// When true, shows gradient + chips on the photo; when false, photo is unobstructed (tags still in sheet).
+    @State private var showLabelsOnPhoto = true
+    @State private var selectedTagOverlay: ImageTagFocusOverlayData?
+    @State private var displayedImage: UIImage?
+    @State private var highlightSelection: HighlightSelectionData?
+    @State private var isResolvingTagFocus = false
+    @State private var liveTagFocusCache: [String: (CGRect, String?)] = [:]
+    @State private var noticeText: String?
+    @State private var detailMagnification: CGFloat = 1
+    @State private var detailMagnificationBase: CGFloat = 1
+    @State private var detailPan: CGSize = .zero
+    @State private var detailPanBase: CGSize = .zero
     var onDelete: (() -> Void)? = nil
     
-    // Lightweight tag model for display
-    private struct AITag: Identifiable, Hashable {
-        let id = UUID()
-        let label: String
-        let category: String
+    private static let aiCategoryPriority: [String] = [
+        "Brand", "Location", "Emotion", "Object", "Color", "Text", "Scene", "Face"
+    ]
+    
+    /// Aligned with Vision pipeline: hide low-confidence brands in the UI.
+    private static let minimumBrandConfidenceToShow = 0.54
+    
+    private static let chromaticColorNames: Set<String> = [
+        "red", "orange", "yellow", "green", "blue", "purple", "pink", "brown"
+    ]
+    
+    private func percentString(from confidence: Double) -> Int? {
+        guard confidence > 0 else { return nil }
+        return max(1, min(99, Int((confidence * 100).rounded())))
     }
     
-    // Build up to 9 mixed-category tags from Core Data metadata
-    private var mixedTags: [AITag] {
-        var categoryMap: [String: [AITag]] = [:]
+    /// Full tag map — categories follow `aiCategoryPriority`; each label string appears in **at most one** category (first wins).
+    private func buildAITagCategoryMap() -> [String: [ImageDetailAITag]] {
+        var categoryMap: [String: [ImageDetailAITag]] = [:]
+        var claimedLabelKeys: Set<String> = []
         
-        func addTag(_ text: String, category: String) {
+        func normalizedKey(_ text: String) -> String {
+            text.trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+                .replacingOccurrences(of: "-", with: "")
+                .replacingOccurrences(of: " ", with: "")
+        }
+        
+        func addTag(_ text: String, category: String, confidencePercent: Int? = nil, focusRect: CGRect? = nil) {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
+            let dedupeKey = normalizedKey(trimmed)
+            guard !claimedLabelKeys.contains(dedupeKey) else { return }
             let key = category.lowercased()
-            // Avoid duplicates within the same category (case-insensitive)
             let existing = categoryMap[key] ?? []
             if existing.contains(where: { $0.label.caseInsensitiveCompare(trimmed) == .orderedSame }) {
                 return
             }
-            let tag = AITag(label: trimmed, category: category)
+            claimedLabelKeys.insert(dedupeKey)
+            let tag = ImageDetailAITag(label: trimmed, category: category, confidencePercent: confidencePercent, focusRect: focusRect)
             categoryMap[key, default: []].append(tag)
         }
         
-        // Brands (e.g., Mercedes-Benz, Nike)
+        func isTextLikeLabel(_ text: String) -> Bool {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.count > 6
+                || trimmed.contains(" ")
+                || trimmed.rangeOfCharacter(from: .decimalDigits) != nil
+        }
+        
+        let labelEntities = (image.labels as? Set<LabelEntity>) ?? []
+        let sortedLabelEntities = labelEntities.sorted { $0.confidence > $1.confidence }
+        // 1. Brand (highest priority for duplicate strings)
         if let brandEntities = image.brands as? Set<BrandEntity> {
             let sorted = brandEntities.sorted { ($0.confidence) > ($1.confidence) }
             for brand in sorted {
-                if let name = brand.name {
-                    addTag(name, category: "Brand")
+                if let name = brand.name,
+                   brand.confidence >= Self.minimumBrandConfidenceToShow,
+                   VisionNoiseTerms.isPlausibleBrandName(name) {
+                    let pct = min(99, Int((brand.confidence * 100).rounded()))
+                    let hasValidBox = brand.boundingBoxWidth > 0 && brand.boundingBoxHeight > 0
+                    let focus = hasValidBox
+                        ? CGRect(
+                            x: brand.boundingBoxX,
+                            y: brand.boundingBoxY,
+                            width: brand.boundingBoxWidth,
+                            height: brand.boundingBoxHeight
+                        )
+                        : nil
+                    addTag(name, category: "Brand", confidencePercent: pct, focusRect: focus)
                 }
             }
         }
         
-        // Base labels list for further categorisation
-        let labelEntities = (image.labels as? Set<LabelEntity>) ?? []
-        let labelStrings: [String] = labelEntities.compactMap { $0.name }
-        
-        // Colors
-        if let colorEntities = image.colors as? Set<ColorEntity> {
-            for color in colorEntities {
-                if let name = color.name {
-                    addTag(name.lowercased(), category: "Color")
+        // 2. Location (from scenes)
+        if let sceneEntities = image.scenes as? Set<SceneEntity> {
+            for scene in sceneEntities {
+                if let name = scene.name, isLocationLike(name) {
+                    addTag(name, category: "Location", confidencePercent: percentString(from: scene.confidence))
                 }
             }
         }
         
-        // Objects (car, shoe, shirt, etc.)
+        // 3. Emotion
+        let emotionKeywords = ["crying", "sad", "happy", "smiling", "smile", "angry", "surprised", "laughing"]
+        for label in sortedLabelEntities {
+            guard let name = label.name else { continue }
+            let lower = name.lowercased()
+            if let keyword = emotionKeywords.first(where: { lower.contains($0) }) {
+                addTag(keyword.capitalized, category: "Emotion", confidencePercent: percentString(from: label.confidence))
+            }
+        }
+        
+        // 4. Object
         if let objectEntities = image.objects as? Set<ObjectEntity> {
             for object in objectEntities {
                 if let name = object.name {
-                    addTag(name, category: "Object")
+                    addTag(name, category: "Object", confidencePercent: percentString(from: object.confidence))
+                }
+            }
+        }
+        for label in sortedLabelEntities {
+            guard let name = label.name else { continue }
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !VisionNoiseTerms.shouldSuppressAsFreeformLabel(trimmed) else { continue }
+            let lower = trimmed.lowercased()
+            let isEmotion = emotionKeywords.contains(where: { lower.contains($0) })
+            let isLocation = isLocationLike(trimmed)
+            guard !isEmotion, !isLocation, !isTextLikeLabel(trimmed) else { continue }
+            addTag(trimmed, category: "Object", confidencePercent: percentString(from: label.confidence))
+        }
+        
+        // 5. Color
+        if let colorEntities = image.colors as? Set<ColorEntity> {
+            for color in colorEntities {
+                guard let name = color.name else { continue }
+                let lower = name.lowercased()
+                let conf = color.confidence
+                if conf > 0 {
+                    let pct = max(1, min(99, Int((conf * 100).rounded())))
+                    addTag(lower, category: "Color", confidencePercent: pct)
+                } else {
+                    if Self.chromaticColorNames.contains(lower) { continue }
+                    addTag(lower, category: "Color", confidencePercent: nil)
                 }
             }
         }
         
-        // Scenes / locations (Taj Mahal, Statue of Liberty, etc.)
+        // 6. Text (leftover labels)
+        for label in sortedLabelEntities {
+            guard let name = label.name else { continue }
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !VisionNoiseTerms.shouldSuppressAsFreeformLabel(trimmed) else { continue }
+            let used = claimedLabelKeys.contains(normalizedKey(trimmed))
+            if used { continue }
+            if isTextLikeLabel(trimmed) {
+                addTag(trimmed, category: "Text", confidencePercent: percentString(from: label.confidence))
+            }
+        }
+        
+        // 7. Scene (non-location scenes)
         if let sceneEntities = image.scenes as? Set<SceneEntity> {
             for scene in sceneEntities {
-                if let name = scene.name {
-                    if isLocationLike(name) {
-                        addTag(name, category: "Location")
+                if let name = scene.name, !isLocationLike(name) {
+                    addTag(name, category: "Scene", confidencePercent: percentString(from: scene.confidence))
+                }
+            }
+        }
+        
+        // 8. Face
+        if let faceEntities = image.faces as? Set<FaceEntity> {
+            for face in faceEntities {
+                if let type = face.faceType, !type.isEmpty {
+                    addTag(type, category: "Face", confidencePercent: percentString(from: face.confidence))
+                }
+            }
+        }
+        
+        for key in categoryMap.keys {
+            categoryMap[key]?.sort { lhs, rhs in
+                let lp = lhs.confidencePercent ?? -1
+                let rp = rhs.confidencePercent ?? -1
+                if lp != rp { return lp > rp }
+                return lhs.label.localizedCaseInsensitiveCompare(rhs.label) == .orderedAscending
+            }
+        }
+        
+        return categoryMap
+    }
+    
+    private func normalizedClampedRect(_ rect: CGRect, minimumExtent: CGFloat = 0.001) -> CGRect? {
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        let sanitized = CGRect(
+            x: max(0, min(1, rect.origin.x)),
+            y: max(0, min(1, rect.origin.y)),
+            width: max(0, min(1, rect.size.width)),
+            height: max(0, min(1, rect.size.height))
+        )
+        let maxX = min(1, sanitized.maxX)
+        let maxY = min(1, sanitized.maxY)
+        let finalRect = CGRect(
+            x: sanitized.minX,
+            y: sanitized.minY,
+            width: max(0, maxX - sanitized.minX),
+            height: max(0, maxY - sanitized.minY)
+        )
+        guard finalRect.width >= minimumExtent, finalRect.height >= minimumExtent else { return nil }
+        return finalRect
+    }
+    
+    private func pixelRect(for normalizedRect: CGRect, image: UIImage) -> CGRect {
+        let width = image.size.width
+        let height = image.size.height
+        return CGRect(
+            x: normalizedRect.origin.x * width,
+            y: normalizedRect.origin.y * height,
+            width: normalizedRect.size.width * width,
+            height: normalizedRect.size.height * height
+        )
+    }
+    
+    private func cropImage(_ image: UIImage, to normalizedRect: CGRect) -> UIImage? {
+        let normalizedImage = normalizedUpImage(from: image)
+        let rect = pixelRect(for: normalizedRect, image: normalizedImage).integral
+        guard rect.width > 1, rect.height > 1, let cg = normalizedImage.cgImage else { return nil }
+        guard let cropped = cg.cropping(to: rect) else { return nil }
+        return UIImage(cgImage: cropped, scale: normalizedImage.scale, orientation: .up)
+    }
+    
+    private func normalizedUpImage(from image: UIImage) -> UIImage {
+        guard image.imageOrientation != .up else { return image }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = image.scale
+        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+    }
+    
+    private func makeOverlayData(for tag: ImageDetailAITag, rect: CGRect, note: String?, in image: UIImage) -> ImageTagFocusOverlayData? {
+        guard let clamped = normalizedClampedRect(rect) else { return nil }
+        guard let crop = cropImage(image, to: clamped) else { return nil }
+        return ImageTagFocusOverlayData(tag: tag, normalizedRect: clamped, croppedImage: crop, note: note)
+    }
+    
+    private func makeHighlightSelection(for tag: ImageDetailAITag, in image: UIImage) -> HighlightSelectionData? {
+        guard tag.category == "Brand" else { return nil }
+        
+        var note: String?
+        var focus = normalizedClampedRect(tag.focusRect ?? .zero)
+        
+        if focus == nil {
+            let brandEntities = (self.image.brands as? Set<BrandEntity>) ?? []
+            if let exact = brandEntities.first(where: { ($0.name ?? "").caseInsensitiveCompare(tag.label) == .orderedSame }) {
+                let rect = CGRect(x: exact.boundingBoxX, y: exact.boundingBoxY, width: exact.boundingBoxWidth, height: exact.boundingBoxHeight)
+                focus = normalizedClampedRect(rect)
+            }
+        }
+        
+        if focus == nil {
+            if let cached = liveTagFocusCache[tag.id] {
+                focus = normalizedClampedRect(cached.0)
+                note = cached.1
+            }
+        }
+        
+        guard let clamped = normalizedClampedRect(focus ?? .zero) else { return nil }
+        return HighlightSelectionData(tag: tag, normalizedRect: clamped, note: note)
+    }
+    
+    private func topLeftRect(fromVision rect: CGRect) -> CGRect {
+        CGRect(x: rect.origin.x, y: 1 - rect.origin.y - rect.height, width: rect.width, height: rect.height)
+    }
+    
+    /// Thin Vision word ranges can degenerate into near-zero thickness in UI coords; widen slightly if needed (e.g. "ASUS").
+    private func ensureMinimumHighlightExtentIfNeeded(_ rect: CGRect) -> CGRect {
+        let minW: CGFloat = 0.024
+        let minH: CGFloat = 0.018
+        guard rect.width < minW || rect.height < minH else { return rect }
+        let cx = rect.midX
+        let cy = rect.midY
+        let nw = max(rect.width, minW)
+        let nh = max(rect.height, minH)
+        var x = cx - nw / 2
+        var y = cy - nh / 2
+        x = min(max(0, x), 1 - nw)
+        y = min(max(0, y), 1 - nh)
+        return CGRect(x: x, y: y, width: min(nw, 1 - x), height: min(nh, 1 - y))
+    }
+    
+    private func highlightRectFromVisionObservation(
+        _ observation: VNRecognizedTextObservation,
+        top: VNRecognizedText,
+        matchRange: Range<String.Index>
+    ) -> CGRect? {
+        let lineTL = topLeftRect(fromVision: observation.boundingBox)
+        guard let wordObservation = try? top.boundingBox(for: matchRange) else {
+            return lineTL
+        }
+        let lineBox = observation.boundingBox
+        let wr = wordObservation.boundingBox
+        let absolute = CGRect(
+            x: lineBox.minX + lineBox.width * wr.minX,
+            y: lineBox.minY + lineBox.height * wr.minY,
+            width: lineBox.width * wr.width,
+            height: lineBox.height * wr.height
+        )
+        var rect = topLeftRect(fromVision: absolute)
+        if rect.width < 0.02 || rect.height < 0.015 {
+            rect = lineTL
+        }
+        return ensureMinimumHighlightExtentIfNeeded(rect)
+    }
+    
+    private func bestVisionTextMatchRect(cgImage: CGImage, normalizedLabel: String) -> CGRect? {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        do {
+            try handler.perform([request])
+            var candidates: [CGRect] = []
+            let observations = (request.results ?? []).compactMap { $0 as? VNRecognizedTextObservation }
+            for obs in observations {
+                guard let top = obs.topCandidates(1).first else { continue }
+                let line = top.string
+                guard let range = line.range(of: normalizedLabel, options: [.caseInsensitive]) else { continue }
+                if let r = highlightRectFromVisionObservation(obs, top: top, matchRange: range) {
+                    candidates.append(r)
+                }
+            }
+            return candidates.min(by: { $0.width * $0.height < $1.width * $1.height })
+        } catch {
+            return nil
+        }
+    }
+    
+    private func resolveLiveFocusRect(for tag: ImageDetailAITag, image: UIImage, completion: @escaping ((CGRect, String?)?) -> Void) {
+        guard tag.category == "Brand" else {
+            completion(nil)
+            return
+        }
+        guard let cgImage = image.cgImage else {
+            completion(nil)
+            return
+        }
+        
+        func finish(_ value: (CGRect, String?)?) {
+            DispatchQueue.main.async {
+                completion(value)
+            }
+        }
+        
+        let normalizedLabel = tag.label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
+        GoogleVisionService.shared.detectTightBrandHighlight(in: image, brandName: tag.label) { apiRect in
+            if let apiRect {
+                let adjusted = self.ensureMinimumHighlightExtentIfNeeded(apiRect)
+                finish((adjusted, nil))
+                return
+            }
+            GoogleVisionService.shared.detectLabelsAndLogos(in: image) { result in
+                switch result {
+                case .success(let (brands, _)):
+                    if let exact = brands.first(where: { $0.brandName.caseInsensitiveCompare(tag.label) == .orderedSame }),
+                       let rect = exact.boundingBox {
+                        finish((self.ensureMinimumHighlightExtentIfNeeded(rect), nil))
                     } else {
-                        addTag(name, category: "Scene")
+                        self.resolveTextFallback(cgImage: cgImage, normalizedLabel: normalizedLabel) { textFallback in
+                            if let textFallback {
+                                finish((textFallback, "Highlighting matched logo text."))
+                            } else {
+                                self.resolveSaliencyFallback(cgImage: cgImage, tagLabel: tag.label) { fallback in
+                                    finish(fallback)
+                                }
+                            }
+                        }
+                    }
+                case .failure:
+                    self.resolveTextFallback(cgImage: cgImage, normalizedLabel: normalizedLabel) { textFallback in
+                        if let textFallback {
+                            finish((textFallback, "Highlighting matched logo text."))
+                        } else {
+                            self.resolveSaliencyFallback(cgImage: cgImage, tagLabel: tag.label) { fallback in
+                                finish(fallback)
+                            }
+                        }
                     }
                 }
             }
         }
-        
-        // Emotions from labels (crying, smiling, etc.)
-        let emotionKeywords = ["crying", "sad", "happy", "smiling", "smile", "angry", "surprised", "laughing"]
-        for label in labelStrings {
-            let lower = label.lowercased()
-            if let keyword = emotionKeywords.first(where: { lower.contains($0) }) {
-                addTag(keyword.capitalized, category: "Emotion")
-            }
+    }
+    
+    private func resolveTextFallback(cgImage: CGImage, normalizedLabel: String, completion: @escaping (CGRect?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let match = self.bestVisionTextMatchRect(cgImage: cgImage, normalizedLabel: normalizedLabel)
+                .map { self.ensureMinimumHighlightExtentIfNeeded($0) }
+            DispatchQueue.main.async { completion(match) }
         }
-        
-        // Popular person names from labels (e.g., Messi)
-        let knownPeople = ["messi", "lionel messi", "ronaldo", "cristiano ronaldo", "virat kohli", "neymar", "mbappe"]
-        for label in labelStrings {
-            let lower = label.lowercased()
-            if let match = knownPeople.first(where: { lower.contains($0) }) {
-                addTag(match.capitalized, category: "Person")
-            } else if looksLikePersonName(label) {
-                addTag(label, category: "Person")
-            }
-        }
-        
-        // Text snippets from labels (fallback for actual text in image)
-        for label in labelStrings {
-            let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
-            let lower = trimmed.lowercased()
-            // Skip if we already used it as person/emotion/location/brand/object/color/scene
-            let used = categoryMap.values.flatMap { $0 }.contains { $0.label.caseInsensitiveCompare(trimmed) == .orderedSame }
-            if used { continue }
-            // Heuristic: treat longer phrases or labels with numbers as text
-            if trimmed.count > 6 || trimmed.contains(" ") || trimmed.rangeOfCharacter(from: .decimalDigits) != nil {
-                addTag(trimmed, category: "Text")
-            }
-        }
-        
-        // Faces / simple person presence (if nothing else)
-        if let faceEntities = image.faces as? Set<FaceEntity> {
-            for face in faceEntities {
-                if let type = face.faceType, !type.isEmpty {
-                    addTag(type, category: "Face")
+    }
+    
+    private func resolveSaliencyFallback(cgImage: CGImage, tagLabel: String, completion: @escaping ((CGRect, String?)?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let request = VNGenerateAttentionBasedSaliencyImageRequest()
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            do {
+                try handler.perform([request])
+                guard let observation = request.results?.first as? VNSaliencyImageObservation,
+                      let primary = observation.salientObjects?.first else {
+                    DispatchQueue.main.async { completion(nil) }
+                    return
                 }
-            }
-        }
-        
-        // Now pick up to 9 tags, ensuring each available category appears at least once
-        let categoryPriority = [
-            "Brand", "Person", "Location", "Emotion", "Object", "Color", "Text", "Scene", "Face"
-        ]
-        
-        var selected: [AITag] = []
-        
-        // Phase 1: one tag per category (respecting priority)
-        for category in categoryPriority {
-            guard selected.count < 9 else { break }
-            let key = category.lowercased()
-            if var tags = categoryMap[key], !tags.isEmpty {
-                let tag = tags.removeFirst()
-                selected.append(tag)
-                categoryMap[key] = tags
-            }
-        }
-        
-        // Phase 2: fill remaining slots cycling through categories
-        while selected.count < 9 {
-            var addedAny = false
-            for category in categoryPriority {
-                guard selected.count < 9 else { break }
-                let key = category.lowercased()
-                if var tags = categoryMap[key], !tags.isEmpty {
-                    let tag = tags.removeFirst()
-                    selected.append(tag)
-                    categoryMap[key] = tags
-                    addedAny = true
+                let rect = self.topLeftRect(fromVision: primary.boundingBox)
+                DispatchQueue.main.async {
+                    completion((rect, "Showing best visual match for '\(tagLabel)'."))
                 }
+            } catch {
+                DispatchQueue.main.async { completion(nil) }
             }
-            if !addedAny { break } // no more tags available
+        }
+    }
+    
+    private func showNotice(_ text: String) {
+        noticeText = text
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+            if noticeText == text {
+                noticeText = nil
+            }
+        }
+    }
+    
+    private func onTapTag(_ tag: ImageDetailAITag, sourceImage: UIImage) {
+        if tag.category != "Brand" {
+            highlightSelection = nil
+            selectedTagOverlay = nil
+            return
         }
         
-        return selected
+        if highlightSelection?.tag.id == tag.id {
+            highlightSelection = nil
+            selectedTagOverlay = nil
+            return
+        }
+        
+        highlightSelection = nil
+        selectedTagOverlay = nil
+        
+        if let base = makeHighlightSelection(for: tag, in: sourceImage) {
+            highlightSelection = base
+            return
+        }
+        
+        isResolvingTagFocus = true
+        resolveLiveFocusRect(for: tag, image: sourceImage) { resolved in
+            isResolvingTagFocus = false
+            guard let resolved else {
+                highlightSelection = nil
+                selectedTagOverlay = nil
+                showNotice("Unable to resolve an exact highlight for this tag.")
+                return
+            }
+            liveTagFocusCache[tag.id] = resolved
+            if let updated = makeHighlightSelection(for: tag, in: sourceImage) {
+                highlightSelection = updated
+            } else {
+                highlightSelection = nil
+                selectedTagOverlay = nil
+                showNotice("Unable to resolve an exact highlight for this tag.")
+            }
+        }
+    }
+    
+    /// Horizontal strip only shows detected brand tags; otherwise stays empty.
+    private var photoStripTags: [ImageDetailAITag] {
+        let map = buildAITagCategoryMap()
+        return map["brand"] ?? []
+    }
+    
+    /// Grouped sections for the sheet (one header per category).
+    private var aiTagSheetSections: [AITagCategorySection] {
+        let map = buildAITagCategoryMap()
+        return Self.aiCategoryPriority.compactMap { title in
+            let tags = map[title.lowercased()] ?? []
+            guard !tags.isEmpty else { return nil }
+            return AITagCategorySection(id: title, title: title, tags: tags)
+        }
+    }
+    
+    private var selectedTagId: String? {
+        highlightSelection?.tag.id
+    }
+    
+    private var aiTagSheetTotalCount: Int {
+        aiTagSheetSections.reduce(0) { $0 + $1.tags.count }
+    }
+    
+    private var canExploreProducts: Bool {
+        image.isIndexed
+            || !((image.labels as? Set<LabelEntity>) ?? []).isEmpty
+            || !((image.brands as? Set<BrandEntity>) ?? []).isEmpty
+            || !((image.objects as? Set<ObjectEntity>) ?? []).isEmpty
     }
     
     private func isLocationLike(_ text: String) -> Bool {
@@ -632,128 +1674,347 @@ struct ImageDetailView: View {
         return locationKeywords.contains(where: { lower.contains($0) })
     }
     
-    private func looksLikePersonName(_ text: String) -> Bool {
-        let words = text.split(separator: " ")
-        guard !words.isEmpty, words.count <= 3 else { return false }
-        // Simple heuristic: each word starts with uppercase and rest are letters
-        return words.allSatisfy { word in
-            guard let first = word.first, first.isUppercase else { return false }
-            return word.dropFirst().allSatisfy { $0.isLetter }
+    private func resetZoomAnimatedForPaging() {
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
+            detailMagnification = 1
+            detailMagnificationBase = 1
+            detailPan = .zero
+            detailPanBase = .zero
         }
+        onZoomStateChanged?(false)
+    }
+    
+    private func detailMagnifyGesture() -> some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                detailMagnification = min(4.0, max(1.0, detailMagnificationBase * value))
+            }
+            .onEnded { _ in
+                detailMagnificationBase = detailMagnification
+                if detailMagnification <= 1.02 {
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
+                        detailMagnification = 1
+                        detailMagnificationBase = 1
+                        detailPan = .zero
+                        detailPanBase = .zero
+                    }
+                    onZoomStateChanged?(false)
+                } else {
+                    onZoomStateChanged?(true)
+                }
+            }
+    }
+    
+    private func detailPanGesture() -> some Gesture {
+        DragGesture()
+            .onChanged { g in
+                guard detailMagnification > 1.02 else { return }
+                detailPan = CGSize(width: detailPanBase.width + g.translation.width, height: detailPanBase.height + g.translation.height)
+            }
+            .onEnded { _ in
+                detailPanBase = detailPan
+            }
+    }
+    
+    /// When zoomed in the pager, swipe horizontally from the screen edges to change photo (full-width paging is disabled while zoomed).
+    private func zoomedPagerEdgeStrip(isLeading: Bool, onSwipeRecognized: @escaping () -> Void) -> some View {
+        let stripeWidth: CGFloat = 56
+        return Color.clear
+            .frame(width: stripeWidth)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 28)
+                    .onEnded { value in
+                        let dx = value.translation.width
+                        let dy = value.translation.height
+                        guard abs(dx) > CGFloat(48), abs(dx) > abs(dy) * CGFloat(1.2) else { return }
+                        if isLeading, dx > 0 {
+                            onSwipeRecognized()
+                        }
+                        if !isLeading, dx < 0 {
+                            onSwipeRecognized()
+                        }
+                    }
+            )
     }
     
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Image
+        NavigationStack {
+            ZStack {
+                Color.black
+                    .ignoresSafeArea()
+                GeometryReader { geo in
                     if let filePath = image.filePath,
                        let uiImage = ImageStorageManager.shared.loadImage(from: filePath) {
-                        Image(uiImage: uiImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .cornerRadius(16)
-                            .padding()
-                    }
-                    
-                    // Mixed AI tags (brands, emotions, people, objects, colors, text, locations)
-                    if !mixedTags.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("AI Tags")
-                                .font(.headline)
-                                .padding(.horizontal)
-                            
-                            LazyVGrid(columns: [
-                                GridItem(.flexible()),
-                                GridItem(.flexible()),
-                                GridItem(.flexible())
-                            ], spacing: 8) {
-                                ForEach(mixedTags) { tag in
-                                    Text(tag.label)
-                                        .font(.caption)
-                                        .lineLimit(1)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(
-                                        Capsule()
-                                            .fill(.ultraThinMaterial)
-                                    )
+                        let imageSize = uiImage.size
+                        let fittedScale = min(geo.size.width / max(1, imageSize.width), geo.size.height / max(1, imageSize.height))
+                        let fittedWidth = imageSize.width * fittedScale
+                        let fittedHeight = imageSize.height * fittedScale
+                        let fittedRect = CGRect(
+                            x: (geo.size.width - fittedWidth) / 2,
+                            y: (geo.size.height - fittedHeight) / 2,
+                            width: fittedWidth,
+                            height: fittedHeight
+                        )
+                        
+                        ZStack {
+                            ZStack {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .onAppear { displayedImage = uiImage }
+                                    .onChange(of: filePath) { _, _ in
+                                        displayedImage = uiImage
+                                        selectedTagOverlay = nil
+                                        detailMagnification = 1
+                                        detailMagnificationBase = 1
+                                        detailPan = .zero
+                                        detailPanBase = .zero
+                                        onZoomStateChanged?(false)
+                                    }
+                                
+                                if let highlight = highlightSelection {
+                                    let rect = highlight.normalizedRect
+                                    Rectangle()
+                                        .stroke(Color.yellow, lineWidth: 2)
+                                        .background(
+                                            Rectangle()
+                                                .fill(Color.yellow.opacity(0.16))
+                                        )
+                                        .frame(width: fittedRect.width * rect.width, height: fittedRect.height * rect.height)
+                                        .position(
+                                            x: fittedRect.minX + (fittedRect.width * rect.minX) + (fittedRect.width * rect.width / 2),
+                                            y: fittedRect.minY + (fittedRect.height * rect.minY) + (fittedRect.height * rect.height / 2)
+                                        )
+                                        .allowsHitTesting(false)
+                                    
+                                    Group {
+                                        if isResolvingTagFocus {
+                                            ProgressView()
+                                                .progressViewStyle(.circular)
+                                                .tint(.white)
+                                        } else {
+                                            Button {
+                                                if let data = makeOverlayData(for: highlight.tag, rect: highlight.normalizedRect, note: highlight.note, in: uiImage) {
+                                                    selectedTagOverlay = data
+                                                } else {
+                                                    showNotice("Could not crop this section.")
+                                                }
+                                            } label: {
+                                                HStack(spacing: 5) {
+                                                    Image(systemName: "crop")
+                                                        .font(.caption.weight(.semibold))
+                                                    Text("Crop")
+                                                        .font(.caption.weight(.semibold))
+                                                }
+                                                .padding(.horizontal, 10)
+                                                .padding(.vertical, 7)
+                                                .foregroundStyle(.white)
+                                                .background(Capsule().fill(Color.blue.opacity(0.92)))
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                    .position(x: fittedRect.maxX - 44, y: fittedRect.minY + 18)
+                                    .transition(.opacity)
+                                    .zIndex(3)
                                 }
                             }
-                            .padding(.horizontal)
-                        }
-                    }
-                    
-                    // Delete Button
-                    Button(action: {
-                        showDeleteConfirmation = true
-                    }) {
-                        HStack {
-                            Image(systemName: "trash")
-                                .font(.headline)
-                            Text("Delete Image")
-                                .fontWeight(.semibold)
-                        }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [
-                                                Color.red.opacity(0.8),
-                                                Color.red.opacity(0.6)
-                                            ]),
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .scaleEffect(detailMagnification)
+                            .offset(detailPan)
+                            .animation(.spring(response: 0.38, dampingFraction: 0.86), value: detailMagnification)
+                            .animation(.spring(response: 0.38, dampingFraction: 0.88), value: detailPan)
+                            .simultaneousGesture(detailMagnifyGesture())
+                            .simultaneousGesture(
+                                detailPanGesture(),
+                                including: detailMagnification > 1.02 ? .all : .subviews
+                            )
+                            
+                            if let overlay = selectedTagOverlay {
+                                Color.black.opacity(0.58)
+                                    .ignoresSafeArea()
+                                    .onTapGesture {
+                                        selectedTagOverlay = nil
+                                    }
+                                    .zIndex(6)
                                 
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [
-                                                Color.white.opacity(0.2),
-                                                Color.white.opacity(0.0)
-                                            ]),
-                                            startPoint: .top,
-                                            endPoint: .bottom
-                                        )
-                                    )
+                                VStack {
+                                    Spacer(minLength: 20)
+                                    ImageTagFocusOverlayCard(data: overlay) {
+                                        selectedTagOverlay = nil
+                                    }
+                                    .frame(maxHeight: geo.size.height * 0.9)
+                                    Spacer(minLength: 20)
+                                }
+                                .zIndex(7)
                             }
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [
-                                            Color.white.opacity(0.4),
-                                            Color.white.opacity(0.1)
-                                        ]),
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 1
+                            
+                            if let noticeText {
+                                VStack {
+                                    Spacer().frame(height: max(14, fittedRect.minY + 12))
+                                    Text(noticeText)
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 10)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                .fill(Color.black.opacity(0.68))
+                                        )
+                                    Spacer()
+                                }
+                                .transition(.opacity)
+                                .zIndex(9)
+                            }
+                            
+                            if image.isFromGallery {
+                                VStack {
+                                    HStack {
+                                        GallerySourceBadge()
+                                        Spacer()
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.top, 8)
+                                .padding(.leading, 12)
+                                .zIndex(4)
+                            }
+                            
+                            if aiTagSheetTotalCount > 0 && showLabelsOnPhoto {
+                                ImageDetailAITagsPhotoOverlay(
+                                    stripTags: photoStripTags,
+                                    totalTagCount: aiTagSheetTotalCount,
+                                    onViewAll: { showAITagsSheet = true },
+                                    onSelectTag: { tag in
+                                        onTapTag(tag, sourceImage: uiImage)
+                                    },
+                                    selectedTagId: selectedTagId
                                 )
+                            }
+                            
+                            if detailMagnification > 1.02, onRequestAdjacentPage != nil {
+                                HStack(spacing: 0) {
+                                    zoomedPagerEdgeStrip(isLeading: true) {
+                                        resetZoomAnimatedForPaging()
+                                        onRequestAdjacentPage?(-1)
+                                    }
+                                    Spacer(minLength: 0)
+                                    zoomedPagerEdgeStrip(isLeading: false) {
+                                        resetZoomAnimatedForPaging()
+                                        onRequestAdjacentPage?(1)
+                                    }
+                                }
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .allowsHitTesting(true)
+                                .zIndex(12)
+                            }
+                        }
+                    } else {
+                        ContentUnavailableView(
+                            "No Preview",
+                            systemImage: "photo",
+                            description: Text("This image could not be loaded.")
                         )
-                        .shadow(color: Color.red.opacity(0.3), radius: 8, y: 4)
+                        .foregroundStyle(.white.opacity(0.7))
                     }
-                    .disabled(isDeleting)
-                    .opacity(isDeleting ? 0.6 : 1.0)
-                    .padding(.horizontal)
-                    .padding(.top, 20)
+                }
+                .animation(.spring(response: 0.32, dampingFraction: 0.85), value: selectedTagOverlay?.tag.id)
+                
+                if isDeleting {
+                    ZStack {
+                        Color.black.opacity(0.28)
+                            .ignoresSafeArea()
+                        CapsuleLoaderOverlay(title: "Deleting photo")
+                    }
+                    .transition(.opacity)
+                    .zIndex(20)
                 }
             }
             .navigationTitle("Image Details")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button("Done") {
                         presentationMode.wrappedValue.dismiss()
                     }
+                    .foregroundStyle(.white)
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    HStack(spacing: 16) {
+                        if aiTagSheetTotalCount > 0 {
+                            Button {
+                                showLabelsOnPhoto.toggle()
+                            } label: {
+                                Image(systemName: showLabelsOnPhoto ? "eye" : "eye.slash")
+                            }
+                            .foregroundStyle(.white.opacity(0.95))
+                            .accessibilityLabel(showLabelsOnPhoto ? "Hide labels on photo" : "Show labels on photo")
+                        }
+                        if canExploreProducts {
+                            Button {
+                                showExploreProducts = true
+                            } label: {
+                                Label("Explore Products", systemImage: "bag")
+                            }
+                            .foregroundStyle(.cyan.opacity(0.95))
+                            .labelStyle(.iconOnly)
+                            .accessibilityLabel("Explore Products")
+                        }
+                        if aiTagSheetTotalCount > 0 {
+                            Button {
+                                showAITagsSheet = true
+                            } label: {
+                                Label("AI Tags", systemImage: "sparkles")
+                            }
+                            .foregroundStyle(.yellow)
+                            .labelStyle(.iconOnly)
+                            .accessibilityLabel("Open AI tags")
+                        }
+                        Button(role: .destructive) {
+                            showDeleteConfirmation = true
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .foregroundStyle(.red.opacity(0.9))
+                        .disabled(isDeleting)
+                    }
+                }
+            }
+            .sheet(isPresented: $showExploreProducts) {
+                ExploreProductsView(image: image)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                    .presentationCornerRadius(28)
+            }
+            .sheet(isPresented: $showAITagsSheet) {
+                ImageDetailAITagsSheet(
+                    sections: aiTagSheetSections,
+                    onSelectTag: { tag in
+                        if let sourceImage = displayedImage {
+                            onTapTag(tag, sourceImage: sourceImage)
+                        }
+                    },
+                    selectedTagId: selectedTagId
+                )
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                    .presentationBackground(.ultraThinMaterial)
+                    .presentationCornerRadius(28)
+                    .presentationBackgroundInteraction(.disabled)
+            }
+            .onChange(of: detailMagnification) { _, newValue in
+                onZoomStateChanged?(newValue > 1.02)
+            }
+            .onAppear {
+                onZoomStateChanged?(detailMagnification > 1.02)
+            }
+            .onDisappear {
+                onZoomStateChanged?(false)
             }
             .alert("Delete Image", isPresented: $showDeleteConfirmation) {
                 Button("Cancel", role: .cancel) { }
@@ -783,10 +2044,10 @@ struct ImageDetailView: View {
                 isDeleting = false
                 
                 if success {
-                    // Call the onDelete callback if provided
                     onDelete?()
-                    // Dismiss the view
-                    presentationMode.wrappedValue.dismiss()
+                    if dismissAfterDelete {
+                        presentationMode.wrappedValue.dismiss()
+                    }
                 } else {
                     deleteError = error ?? "Failed to delete image"
                 }
@@ -795,10 +2056,60 @@ struct ImageDetailView: View {
     }
 }
 
+/// Drives `.sheet(item:)` so the detail view is built only when Core Data identity is wired (fixes blank sheets from `isPresented` timing).
+private struct SearchImageSheetItem: Identifiable {
+    /// Stable opaque identity for SwiftUI transitions.
+    let id: NSManagedObjectID
+}
+
+private struct SearchResultImageDetailHost: View {
+    let managedObjectID: NSManagedObjectID
+    let onDeleted: () -> Void
+    
+    var body: some View {
+        Group {
+            if let entity = resolveImageEntity() {
+                ImageDetailView(image: entity, onDelete: {
+                    onDeleted()
+                })
+            } else {
+                NavigationStack {
+                    ContentUnavailableView(
+                        "Couldn’t open photo",
+                        systemImage: "exclamationmark.triangle",
+                        description: Text("This image may no longer be available.")
+                    )
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") {
+                                dismiss()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    @Environment(\.dismiss) private var dismiss
+    
+    private func resolveImageEntity() -> ImageEntity? {
+        let ctx = UserManager.shared.viewContext
+        do {
+            let obj = try ctx.existingObject(with: managedObjectID)
+            guard !obj.isDeleted else { return nil }
+            return obj as? ImageEntity
+        } catch {
+            return nil
+        }
+    }
+}
+
 struct SearchResultsView: View {
     let results: [ImageEntity]
     let searchText: String
     var onDelete: (() -> Void)? = nil
+    @State private var searchDetailSheetItem: SearchImageSheetItem?
     
     var body: some View {
         ScrollView {
@@ -824,11 +2135,23 @@ struct SearchResultsView: View {
                     GridItem(.flexible(), spacing: 12),
                     GridItem(.flexible(), spacing: 12)
                 ], spacing: 12) {
-                    ForEach(results, id: \.id) { image in
-                        ImageThumbnailCard(image: image, onDelete: onDelete)
+                    ForEach(results, id: \.objectID) { image in
+                        ImageThumbnailCard(
+                            image: image,
+                            onTap: {
+                                searchDetailSheetItem = SearchImageSheetItem(id: image.objectID)
+                            },
+                            onDelete: onDelete
+                        )
                     }
                 }
                 .padding()
+            }
+        }
+        .sheet(item: $searchDetailSheetItem) { item in
+            SearchResultImageDetailHost(managedObjectID: item.id) {
+                onDelete?()
+                searchDetailSheetItem = nil
             }
         }
     }
@@ -859,7 +2182,7 @@ struct SmartSearchBar: View {
                     .foregroundColor(.black)
                     .tint(.black)
                     .onSubmit(onSearch)
-                    .onChange(of: text) { newValue in
+                    .onChange(of: text) { _, newValue in
                         if newValue.isEmpty {
                             onClear()
                         }

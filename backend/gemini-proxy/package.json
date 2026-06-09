@@ -1,0 +1,16 @@
+{
+  "name": "snapcapsule-gemini-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloud Run proxy for SnapCapsule voice search (Gemini intent parsing)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
