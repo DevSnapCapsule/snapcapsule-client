@@ -22,6 +22,14 @@ enum AppConfiguration {
             ?? "gemini-2.5-flash-lite"
     }
 
+    /// Cloud Run proxy URL for eBay product search (`GET /shopping/search`).
+    static var shoppingProxyURL: URL? {
+        guard let raw = resolvedString(forKey: "ShoppingProxyURL", environmentKeys: ["SHOPPING_PROXY_URL"]) else {
+            return nil
+        }
+        return URL(string: raw)
+    }
+
     private static func resolvedString(forKey key: String, environmentKeys: [String]) -> String? {
         AppSecrets.string(plistKey: key, environmentKeys: environmentKeys)
     }

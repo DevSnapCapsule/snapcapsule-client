@@ -29,11 +29,17 @@ enum ProductExploreMetadataBuilder {
         
         if let brandEntities = image.brands as? Set<BrandEntity> {
             let sorted = brandEntities.sorted { $0.confidence > $1.confidence }
+            var seenBrandKeys = Set<String>()
             for brand in sorted {
-                guard let name = brand.name?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !name.isEmpty,
+                guard let rawName = brand.name?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !rawName.isEmpty,
                       brand.confidence >= minimumBrandConfidence,
-                      VisionNoiseTerms.isPlausibleBrandName(name) else { continue }
+                      VisionNoiseTerms.isPlausibleBrandName(rawName) else { continue }
+                // Canonicalize stored names (older data may still hold sub-brands like "iPhone").
+                let name = VisionNoiseTerms.canonicalBrandName(rawName)
+                let key = name.lowercased()
+                guard !seenBrandKeys.contains(key) else { continue }
+                seenBrandKeys.insert(key)
                 brands.append(ProductExploreTag(name: name, confidence: brand.confidence, source: .brand))
             }
         }

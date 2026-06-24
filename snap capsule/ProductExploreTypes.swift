@@ -84,6 +84,19 @@ struct ProductExploreSnapshot: Equatable {
     var allTags: [ProductExploreTag] {
         brands + objects + labels + scenes + ocrTexts
     }
+
+    /// Detected brand names sorted by confidence (for Gemini query generation).
+    var brandNames: [String] {
+        brands.map(\.name)
+    }
+
+    /// Top metadata tags from labels, objects, and scenes (up to 10 by confidence).
+    var topMetadataTags: [String] {
+        (labels + objects + scenes)
+            .sorted { $0.confidence > $1.confidence }
+            .prefix(10)
+            .map(\.name)
+    }
 }
 
 struct QueryDraft: Equatable {

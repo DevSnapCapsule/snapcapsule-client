@@ -86,6 +86,51 @@ enum VisionNoiseTerms {
         if brandBlocklist.contains(compact) { return false }
         return true
     }
+
+    // MARK: - Brand canonicalization
+
+    /// Maps product lines / sub-brands to their parent brand so detection stays consistent.
+    /// Example: an Apple logo that Vision surfaces as "iPhone" still resolves to "Apple".
+    /// Keys are lowercased; multi-word keys are matched as substrings, single tokens as whole words.
+    private static let brandCanonicalMap: [String: String] = [
+        "iphone": "Apple",
+        "ipad": "Apple",
+        "ipod": "Apple",
+        "imac": "Apple",
+        "macbook": "Apple",
+        "macbook air": "Apple",
+        "macbook pro": "Apple",
+        "airpods": "Apple",
+        "apple watch": "Apple",
+        "apple tv": "Apple",
+        "samsung galaxy": "Samsung",
+        "google pixel": "Google",
+        "playstation": "Sony",
+        "xbox": "Microsoft"
+    ]
+
+    /// Resolves a detected brand/product term to its canonical parent brand.
+    /// Returns the trimmed original when no mapping applies, so non-Apple brands are untouched.
+    static func canonicalBrandName(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+
+        let key = trimmed.lowercased()
+        if let mapped = brandCanonicalMap[key] { return mapped }
+
+        // Multi-word product lines (e.g. "apple watch", "macbook pro") matched as substrings.
+        for (term, parent) in brandCanonicalMap where term.contains(" ") {
+            if key.contains(term) { return parent }
+        }
+
+        // Single-token product lines (e.g. "iphone 15 pro" -> "iphone" -> Apple) matched on word boundaries.
+        let tokens = Set(key.split { !$0.isLetter && !$0.isNumber }.map(String.init))
+        for (term, parent) in brandCanonicalMap where !term.contains(" ") {
+            if tokens.contains(term) { return parent }
+        }
+
+        return trimmed
+    }
     
     // MARK: - Person (UI heuristics)
     

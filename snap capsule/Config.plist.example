@@ -2,9 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>GeminiProxyURL</key>
-	<string>https://gemini-proxy-937348762913.europe-west1.run.app</string>
+	<key>GeminiAPIKey</key>
+	<string>YOUR_GEMINI_API_KEY_HERE</string>
 	<key>GeminiModelName</key>
-	<string>gemini-2.5-flash-lite</string>
+	<string>gemini-2.0-flash</string>
+	<key>GeminiProxyURL</key>
+	<string></string>
+	<key>ShoppingProxyURL</key>
+	<string></string>
 </dict>
 </plist>

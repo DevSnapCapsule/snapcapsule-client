@@ -7,6 +7,14 @@ struct BrandDetectionResult {
     let brandName: String
     let confidence: Double
     let boundingBox: CGRect?
+
+    init(brandName: String, confidence: Double, boundingBox: CGRect?) {
+        // Canonicalize at the source so sub-brands/product lines (e.g. "iPhone") resolve to the
+        // parent brand ("Apple") regardless of which Vision path produced them.
+        self.brandName = VisionNoiseTerms.canonicalBrandName(brandName)
+        self.confidence = confidence
+        self.boundingBox = boundingBox
+    }
 }
 
 struct VisionLocalizedObject {

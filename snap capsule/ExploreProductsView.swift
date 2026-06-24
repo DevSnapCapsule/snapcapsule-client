@@ -47,8 +47,8 @@ struct ExploreProductsView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .onAppear {
-            viewModel.load()
+        .task {
+            await viewModel.load()
             withAnimation(.easeOut(duration: 0.45).delay(0.08)) {
                 cardsAppeared = true
             }
@@ -86,7 +86,7 @@ struct ExploreProductsView: View {
         HStack(spacing: 12) {
             ProgressView()
                 .tint(.white)
-            Text("Building suggestions…")
+            Text("Generating suggestions…")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white.opacity(0.8))
         }
@@ -124,7 +124,9 @@ struct ExploreProductsView: View {
             Image(systemName: "lock.shield.fill")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.55))
-            Text("Queries are generated on your device from saved metadata. Images are not uploaded and no shopping links are opened.")
+            Text(viewModel.didUseRuleBasedFallback
+                ? "Queries are generated on your device from saved metadata. Images are not uploaded."
+                : "Brand names and tags (not photos) are sent to Google Gemini to generate queries. Images are never uploaded.")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.5))
                 .fixedSize(horizontal: false, vertical: true)
@@ -137,7 +139,8 @@ struct ExploreProductsView: View {
 
 private struct ExploreProductQueryCard: View {
     let query: GeneratedProductQuery
-    
+    @State private var isShopPressed = false
+
     private var confidenceColor: Color {
         switch query.confidence {
         case .high: return Color.green.opacity(0.9)
@@ -160,6 +163,45 @@ private struct ExploreProductQueryCard: View {
             if !query.chips.isEmpty {
                 FlowLayoutChips(items: query.chips)
             }
+
+            NavigationLink {
+                ShoppingResultsView(query: query.text)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "cart.fill")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Shop This")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.blue.opacity(0.85), Color.purple.opacity(0.75)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.white.opacity(0.25), lineWidth: 1)
+                }
+                .scaleEffect(isShopPressed ? 0.97 : 1.0)
+                .animation(.easeInOut(duration: 0.12), value: isShopPressed)
+            }
+            .buttonStyle(.plain)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in isShopPressed = true }
+                    .onEnded { _ in isShopPressed = false }
+            )
         }
         .padding(16)
         .background {
